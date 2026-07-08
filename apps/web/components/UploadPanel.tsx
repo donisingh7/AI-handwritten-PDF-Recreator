@@ -3,11 +3,43 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PDFDocument } from "pdf-lib";
-import { AlertTriangle, CheckCircle2, FileText, Loader2, UploadCloud } from "lucide-react";
-import { createJob, startJob, uploadPdf } from "@/lib/api";
+import { AlertTriangle, CheckCircle2, FileText, Loader2, ScanLine, Sparkles, UploadCloud, type LucideIcon } from "lucide-react";
+import { createJob, ProcessingMode, startJob, uploadPdf } from "@/lib/api";
 import { config, maxUploadBytes } from "@/lib/config";
 
 type UploadState = "idle" | "validating" | "ready" | "creating" | "uploading" | "starting";
+
+const modeOptions: Array<{
+  mode: ProcessingMode;
+  title: string;
+  subtitle: string;
+  description: string;
+  badge: string;
+  button: string;
+  cost: string;
+  icon: LucideIcon;
+}> = [
+  {
+    mode: "premium",
+    title: "Premium Mode",
+    subtitle: "Best quality handwritten recreation",
+    description: "Uses AI image recreation to rewrite pages as clean handwritten A4 sheets.",
+    badge: "Higher cost",
+    button: "Use Premium",
+    cost: "Higher cost because every page is recreated with AI image generation.",
+    icon: Sparkles
+  },
+  {
+    mode: "cheap",
+    title: "Cheap Mode",
+    subtitle: "Low-cost printable cleanup",
+    description: "Uses image cleanup to make scanned pages white, clean, and printable while preserving original handwriting.",
+    badge: "Low cost",
+    button: "Use Cheap",
+    cost: "Low cost because pages are cleaned locally without AI image generation.",
+    icon: ScanLine
+  }
+];
 
 export function UploadPanel() {
   const router = useRouter();
@@ -16,6 +48,9 @@ export function UploadPanel() {
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [state, setState] = useState<UploadState>("idle");
+  const [selectedMode, setSelectedMode] = useState<ProcessingMode | null>(null);
+
+  const selectedModeOption = modeOptions.find((option) => option.mode === selectedMode) || null;
 
   const selectedSize = useMemo(() => {
     if (!file) return "No file";
@@ -64,11 +99,11 @@ export function UploadPanel() {
   }
 
   async function handleStart() {
-    if (!file || !pageCount) return;
+    if (!file || !pageCount || !selectedMode) return;
     setError(null);
     try {
       setState("creating");
-      const job = await createJob(file.name, file.size, pageCount);
+      const job = await createJob(file.name, file.size, pageCount, selectedMode);
       setState("uploading");
       await uploadPdf(job.uploadUrl, file, setUploadProgress);
       setState("starting");
@@ -86,6 +121,39 @@ export function UploadPanel() {
 
   return (
     <div className="upload-zone">
+      <div className="mode-grid" aria-label="Processing mode">
+        {modeOptions.map((option) => {
+          const Icon = option.icon;
+          const isSelected = option.mode === selectedMode;
+          return (
+            <article className={`mode-card ${isSelected ? "selected" : ""}`} key={option.mode}>
+              <div className="mode-card-header">
+                <Icon size={22} />
+                <span className="mode-badge">{option.badge}</span>
+              </div>
+              <h2>{option.title}</h2>
+              <strong>{option.subtitle}</strong>
+              <p>{option.description}</p>
+              <p className="mode-cost">{option.cost}</p>
+              <button className={isSelected ? "primary-button" : "secondary-button"} type="button" onClick={() => setSelectedMode(option.mode)} disabled={isBusy}>
+                {isSelected ? <CheckCircle2 size={17} /> : <FileText size={17} />}
+                {isSelected ? "Selected" : option.button}
+              </button>
+            </article>
+          );
+        })}
+      </div>
+
+      {selectedModeOption && (
+        <div className="selected-mode">
+          <span>Selected mode</span>
+          <strong>{selectedModeOption.title}</strong>
+          <p>{selectedModeOption.subtitle}</p>
+        </div>
+      )}
+
+      {selectedMode && (
+        <>
       <label className="file-input-wrap">
         <input type="file" accept="application/pdf" multiple={false} onChange={handleFileChange} disabled={isBusy} />
         <span className="file-input-content">
@@ -140,11 +208,13 @@ export function UploadPanel() {
       )}
 
       <div className="action-row">
-        <button className="primary-button" type="button" disabled={!file || !pageCount || isBusy} onClick={handleStart}>
+        <button className="primary-button" type="button" disabled={!file || !pageCount || !selectedMode || isBusy} onClick={handleStart}>
           {isBusy ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
           {actionLabel}
         </button>
       </div>
+        </>
+      )}
     </div>
   );
 }

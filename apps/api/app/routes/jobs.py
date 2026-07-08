@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import JobStatus
+from app.models import JobStatus, ProcessingMode
 from app.schemas import (
     DownloadUrlResponse,
     JobCreateRequest,
@@ -27,6 +27,16 @@ def get_queue(settings: Settings) -> Queue:
     return Queue(settings.rq_queue_name, connection=redis_conn)
 
 
+def normalize_processing_mode(mode: str | None, settings: Settings) -> str:
+    normalized = (mode or settings.default_processing_mode_normalized).strip().lower()
+    if normalized not in ProcessingMode.VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="processingMode must be either 'premium' or 'cheap'.",
+        )
+    return normalized
+
+
 @router.post("/create", response_model=JobCreateResponse)
 def create_job(
     payload: JobCreateRequest,
@@ -46,10 +56,21 @@ def create_job(
             detail=f"PDF exceeds {settings.max_pdf_pages} page limit.",
         )
 
+    processing_mode = normalize_processing_mode(payload.processing_mode, settings)
     service = JobService(settings)
-    job = service.create_job(db, filename=payload.filename, page_count=payload.page_count)
+    job = service.create_job(
+        db,
+        filename=payload.filename,
+        page_count=payload.page_count,
+        processing_mode=processing_mode,
+    )
     upload_url = S3Service(settings).create_presigned_upload_url(job.input_pdf_key)
-    return JobCreateResponse(jobId=job.id, uploadUrl=upload_url, s3Key=job.input_pdf_key)
+    return JobCreateResponse(
+        jobId=job.id,
+        uploadUrl=upload_url,
+        s3Key=job.input_pdf_key,
+        processingMode=job.processing_mode,
+    )
 
 
 @router.post("/{job_id}/start", response_model=StartJobResponse)

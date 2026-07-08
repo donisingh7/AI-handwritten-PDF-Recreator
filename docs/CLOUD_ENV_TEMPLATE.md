@@ -29,6 +29,8 @@ OPENAI_IMAGE_SIZE=1024x1536
 OPENAI_IMAGE_QUALITY=high
 OPENAI_IMAGE_FORMAT=png
 
+DEFAULT_PROCESSING_MODE=premium
+
 FINAL_A4_WIDTH_PX=2480
 FINAL_A4_HEIGHT_PX=3508
 FINAL_PRINT_DPI=300
@@ -51,6 +53,32 @@ WORKER_CONCURRENCY=1
 PAGE_PROCESSING_CONCURRENCY=1
 MAX_PAGE_RETRIES=2
 ```
+
+Cheap Mode does not require `OPENAI_API_KEY` because it uses local OpenCV/Pillow cleanup only. Premium Mode requires `OPENAI_API_KEY`.
+
+## C. Supabase Migration
+
+Run this once before deploying the processing-mode release:
+
+```sql
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS processing_mode VARCHAR(20) NOT NULL DEFAULT 'premium';
+
+UPDATE jobs
+SET processing_mode = 'premium'
+WHERE processing_mode IS NULL;
+
+DO $$
+BEGIN
+  ALTER TABLE jobs
+  ADD CONSTRAINT jobs_processing_mode_check
+  CHECK (processing_mode IN ('premium', 'cheap'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+```
+
+The backend also performs a best-effort additive column check at startup, but running the Supabase migration explicitly is the safest production path.
 
 ## Supabase Password Encoding
 

@@ -27,6 +27,12 @@ class PageStatus:
     FAILED = "failed"
 
 
+class ProcessingMode:
+    PREMIUM = "premium"
+    CHEAP = "cheap"
+    VALUES = {PREMIUM, CHEAP}
+
+
 def generate_uuid() -> str:
     return str(uuid.uuid4())
 
@@ -39,6 +45,12 @@ class Job(Base):
     input_pdf_key: Mapped[str] = mapped_column(String(512), nullable=False)
     final_pdf_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    processing_mode: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=ProcessingMode.PREMIUM,
+        server_default=ProcessingMode.PREMIUM,
+    )
     status: Mapped[str] = mapped_column(String(40), nullable=False, default=JobStatus.CREATED, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

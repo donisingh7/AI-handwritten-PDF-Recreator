@@ -2,7 +2,7 @@
 
 ## Request Flow
 
-1. The user selects one PDF in the Next.js app.
+1. The user selects Premium Mode or Cheap Mode, then selects one PDF in the Next.js app.
 2. The browser validates file type, size, and page count with `pdf-lib`.
 3. The web app calls `POST /jobs/create`.
 4. FastAPI creates a PostgreSQL job row and returns a presigned S3 upload URL.
@@ -18,7 +18,8 @@
 - `routes/jobs.py`: API endpoints for job creation, start, status, pages, retry placeholder, and download URL.
 - `services/s3_service.py`: S3 key naming, presigned URLs, upload, download, JSON manifest writes.
 - `services/pdf_service.py`: PDF validation and PyMuPDF rendering.
-- `services/openai_image_service.py`: centralized prompt template and OpenAI Image API call.
+- `services/openai_image_service.py`: centralized prompt template and OpenAI Image API call for Premium Mode.
+- `services/cheap_cleanup_service.py`: OpenCV/Pillow cleanup and A4 normalization for Cheap Mode.
 - `services/image_postprocess_service.py`: background whitening, tiny noise removal, A4 canvas fitting, PNG export.
 - `services/merge_service.py`: final A4 PDF creation from ordered cleaned PNGs.
 - `workers/tasks.py`: end-to-end job orchestration and status updates.
@@ -47,7 +48,7 @@ If page generation fails for any page, the job becomes `partially_failed` and no
 
 ## Printable A4 Pipeline
 
-The model output is treated as an intermediate image. The worker always performs:
+Premium Mode treats the model output as an intermediate image. The worker performs:
 
 1. source PDF page render to PNG at 200 DPI
 2. OpenAI image edit/recreation using the rendered source page
@@ -58,3 +59,14 @@ The model output is treated as an intermediate image. The worker always performs
 7. PDF merge from cleaned PNGs at A4 page size
 
 This keeps the final PDF printable even when the image model returns a lower-resolution portrait PNG.
+
+Cheap Mode skips the OpenAI call. It performs:
+
+1. source PDF page render to PNG
+2. local scan cleanup with OpenCV/Pillow
+3. preservation of original handwriting and diagrams where possible
+4. aspect-ratio-preserving fit onto `2480x3508` white A4 canvas
+5. cleaned PNG upload to S3
+6. PDF merge from cleaned PNGs at A4 page size
+
+`manifest.json` includes `processingMode`, and old jobs without a stored mode are treated as `premium`.

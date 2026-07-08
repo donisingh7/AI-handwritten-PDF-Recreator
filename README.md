@@ -2,7 +2,7 @@
 
 Full-stack MVP for converting a scanned practical/notebook PDF into a clean, printable A4 handwritten-style PDF.
 
-The system accepts exactly one PDF per job, uploads it directly to private S3 through a presigned URL, renders every page, asks the OpenAI Image API to recreate each page, cleans every generated PNG onto a 300-DPI A4 canvas, and merges the cleaned pages into the final printable PDF.
+The system accepts exactly one PDF per job, uploads it directly to private S3 through a presigned URL, renders every page, processes each page in either Premium Mode or Cheap Mode, normalizes each page onto a 300-DPI A4 canvas, and merges the cleaned pages into the final printable PDF.
 
 ## Architecture
 
@@ -70,6 +70,7 @@ API:
 - `OPENAI_IMAGE_SIZE`
 - `OPENAI_IMAGE_QUALITY`
 - `OPENAI_IMAGE_FORMAT`
+- `DEFAULT_PROCESSING_MODE`
 - `FINAL_A4_WIDTH_PX`
 - `FINAL_A4_HEIGHT_PX`
 - `FINAL_PRINT_DPI`
@@ -82,7 +83,11 @@ Frontend:
 
 ## Image Generation And Print Pipeline
 
-The default image generation size is `1024x1536` because it is a portrait GPT Image size that keeps model latency and cost lower than generating directly at print resolution. The generated image is not the final print asset.
+Premium Mode is the existing AI image recreation pipeline. It uses the OpenAI Image API to recreate each rendered page as a clean handwritten A4 page, then performs post-processing and PDF merge.
+
+Cheap Mode is an OpenCV/Pillow cleanup pipeline. It does not call the OpenAI Image API. It cleans the rendered source page, preserves the original handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
+
+Cheap Mode is recommended for large PDFs and readable scans. Premium Mode is recommended for the best visual handwritten recreation.
 
 Every generated page is then normalized to `2480x3508` pixels at `300` DPI, which matches A4 print sizing. The post-processing service:
 
@@ -93,6 +98,21 @@ Every generated page is then normalized to `2480x3508` pixels at `300` DPI, whic
 - writes a final cleaned PNG before PDF merge
 
 The final PDF is built only from these cleaned A4 PNGs, sorted by `page_no` ascending.
+
+## API Processing Modes
+
+`POST /jobs/create` accepts an optional mode:
+
+```json
+{
+  "filename": "file.pdf",
+  "fileSize": 12345,
+  "pageCount": 10,
+  "processingMode": "premium"
+}
+```
+
+Allowed values are `premium` and `cheap`. If `processingMode` is missing, the backend defaults to `premium` for backward compatibility.
 
 ## How To Test With One PDF
 

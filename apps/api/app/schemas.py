@@ -7,6 +7,7 @@ class JobCreateRequest(BaseModel):
     filename: str
     file_size: int = Field(alias="fileSize", gt=0)
     page_count: int = Field(alias="pageCount", gt=0)
+    processing_mode: str | None = Field(default=None, alias="processingMode")
 
 
 class JobCreateResponse(BaseModel):
@@ -15,6 +16,7 @@ class JobCreateResponse(BaseModel):
     job_id: str = Field(alias="jobId")
     upload_url: str = Field(alias="uploadUrl")
     s3_key: str = Field(alias="s3Key")
+    processing_mode: str = Field(alias="processingMode")
 
 
 class StartJobResponse(BaseModel):
@@ -37,6 +39,7 @@ class JobStatusResponse(BaseModel):
 
     job_id: str = Field(alias="jobId")
     status: str
+    processing_mode: str = Field(alias="processingMode")
     page_count: int = Field(alias="pageCount")
     completed_pages: int = Field(alias="completedPages")
     failed_pages: list[int] = Field(alias="failedPages")

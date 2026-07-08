@@ -4,11 +4,15 @@ export type CreateJobResponse = {
   jobId: string;
   uploadUrl: string;
   s3Key: string;
+  processingMode: ProcessingMode;
 };
+
+export type ProcessingMode = "premium" | "cheap";
 
 export type JobStatus = {
   jobId: string;
   status: string;
+  processingMode: ProcessingMode;
   pageCount: number;
   completedPages: number;
   failedPages: number[];
@@ -52,10 +56,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function createJob(filename: string, fileSize: number, pageCount: number): Promise<CreateJobResponse> {
+export function createJob(filename: string, fileSize: number, pageCount: number, processingMode: ProcessingMode): Promise<CreateJobResponse> {
   return request<CreateJobResponse>("/jobs/create", {
     method: "POST",
-    body: JSON.stringify({ filename, fileSize, pageCount })
+    body: JSON.stringify({ filename, fileSize, pageCount, processingMode })
   });
 }
 

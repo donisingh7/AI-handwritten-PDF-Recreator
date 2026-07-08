@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings, get_settings
-from app.models import Job, JobPage, JobStatus, PageStatus
+from app.models import Job, JobPage, JobStatus, PageStatus, ProcessingMode
 from app.schemas import JobStatusResponse, PageStatusResponse
 from app.services.s3_service import final_pdf_key, input_pdf_key
 
@@ -11,8 +11,8 @@ class JobService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
-    def create_job(self, db: Session, filename: str, page_count: int) -> Job:
-        job = Job(filename=filename, page_count=page_count, input_pdf_key="")
+    def create_job(self, db: Session, filename: str, page_count: int, processing_mode: str) -> Job:
+        job = Job(filename=filename, page_count=page_count, processing_mode=processing_mode, input_pdf_key="")
         db.add(job)
         db.flush()
         job.input_pdf_key = input_pdf_key(job.id)
@@ -39,6 +39,7 @@ class JobService:
         return JobStatusResponse(
             jobId=job.id,
             status=job.status,
+            processingMode=job.processing_mode or ProcessingMode.PREMIUM,
             pageCount=job.page_count,
             completedPages=completed_pages,
             failedPages=failed_pages,

@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     page_processing_concurrency: int = 1
     max_page_retries: int = 2
 
+    default_processing_mode: str = "premium"
+
     openai_api_key: Optional[str] = None
     openai_cost_mode: str = "fast"
     openai_image_model: str = "gpt-image-2"
@@ -66,6 +68,13 @@ class Settings(BaseSettings):
         if self.frontend_url and self.frontend_url not in origins:
             origins.append(self.frontend_url)
         return origins
+
+    @property
+    def default_processing_mode_normalized(self) -> str:
+        mode = self.default_processing_mode.strip().lower()
+        if mode in {"premium", "cheap"}:
+            return mode
+        return "premium"
 
     @property
     def effective_openai_image_size(self) -> str:

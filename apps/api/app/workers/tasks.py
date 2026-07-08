@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Job, JobPage, JobStatus, PageStatus
+from app.models import Job, JobPage, JobStatus, PageStatus, ProcessingMode
+from app.services.cheap_cleanup_service import CheapCleanupService
 from app.services.image_postprocess_service import ImagePostprocessService
 from app.services.merge_service import MergeService
 from app.services.openai_image_service import OpenAIImageService
@@ -77,6 +78,7 @@ def process_job(job_id: str) -> None:
         generated_paths: dict[int, Path] = {}
         image_service = OpenAIImageService(settings)
         postprocess_service = ImagePostprocessService(settings)
+        cheap_cleanup_service = CheapCleanupService()
 
         for page in sorted(page_records, key=lambda item: item.page_no):
             source_path = source_dir / f"page_{page.page_no:03d}.png"
@@ -88,23 +90,39 @@ def process_job(job_id: str) -> None:
                 db.add(page)
                 db.commit()
 
-                page_started_at = time.monotonic()
-                logger.info("job %s page %s: requesting OpenAI image recreation", job.id, page.page_no)
-                image_service.recreate_page(source_path, raw_path, page.page_no)
-                logger.info(
-                    "job %s page %s: OpenAI image recreation finished in %.1fs",
-                    job.id,
-                    page.page_no,
-                    time.monotonic() - page_started_at,
-                )
-                postprocess_started_at = time.monotonic()
-                postprocess_service.clean_and_fit_to_a4(raw_path, cleaned_path)
-                logger.info(
-                    "job %s page %s: image post-processing finished in %.1fs",
-                    job.id,
-                    page.page_no,
-                    time.monotonic() - postprocess_started_at,
-                )
+                if _processing_mode(job) == ProcessingMode.CHEAP:
+                    cleanup_started_at = time.monotonic()
+                    logger.info("job %s page %s: running cheap cleanup without OpenAI", job.id, page.page_no)
+                    cheap_cleanup_service.clean_page_to_a4(
+                        source_path,
+                        cleaned_path,
+                        settings.final_a4_width_px,
+                        settings.final_a4_height_px,
+                    )
+                    logger.info(
+                        "job %s page %s: cheap cleanup finished in %.1fs",
+                        job.id,
+                        page.page_no,
+                        time.monotonic() - cleanup_started_at,
+                    )
+                else:
+                    page_started_at = time.monotonic()
+                    logger.info("job %s page %s: requesting OpenAI image recreation", job.id, page.page_no)
+                    image_service.recreate_page(source_path, raw_path, page.page_no)
+                    logger.info(
+                        "job %s page %s: OpenAI image recreation finished in %.1fs",
+                        job.id,
+                        page.page_no,
+                        time.monotonic() - page_started_at,
+                    )
+                    postprocess_started_at = time.monotonic()
+                    postprocess_service.clean_and_fit_to_a4(raw_path, cleaned_path)
+                    logger.info(
+                        "job %s page %s: image post-processing finished in %.1fs",
+                        job.id,
+                        page.page_no,
+                        time.monotonic() - postprocess_started_at,
+                    )
 
                 generated_key = page_png_key(job.id, page.page_no, "generated")
                 upload_started_at = time.monotonic()
@@ -217,6 +235,7 @@ def _upload_manifest(db: Session, job_id: str, s3: S3Service) -> None:
         "jobId": job.id,
         "filename": job.filename,
         "status": job.status,
+        "processingMode": _processing_mode(job),
         "pageCount": job.page_count,
         "inputPdfKey": job.input_pdf_key,
         "finalPdfKey": job.final_pdf_key,
@@ -234,3 +253,9 @@ def _upload_manifest(db: Session, job_id: str, s3: S3Service) -> None:
         ],
     }
     s3.put_json(manifest_key(job_id), manifest)
+
+
+def _processing_mode(job: Job) -> str:
+    if job.processing_mode in ProcessingMode.VALUES:
+        return job.processing_mode
+    return ProcessingMode.PREMIUM
