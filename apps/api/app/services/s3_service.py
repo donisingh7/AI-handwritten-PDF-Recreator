@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.config import Settings, get_settings
@@ -18,12 +19,14 @@ class S3Service:
         if self._client is None:
             if not self.settings.s3_bucket or self.settings.s3_bucket == "replace-me-private-bucket":
                 raise RuntimeError("S3_BUCKET must be configured before storage operations can run.")
+            endpoint_url = self.settings.s3_endpoint_url or f"https://s3.{self.settings.aws_region}.amazonaws.com"
             self._client = boto3.client(
                 "s3",
                 region_name=self.settings.aws_region,
-                endpoint_url=self.settings.s3_endpoint_url or None,
+                endpoint_url=endpoint_url,
                 aws_access_key_id=self.settings.aws_access_key_id or None,
                 aws_secret_access_key=self.settings.aws_secret_access_key or None,
+                config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
             )
         return self._client
 
