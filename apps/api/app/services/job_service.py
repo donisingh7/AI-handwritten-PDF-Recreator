@@ -1,0 +1,66 @@
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.config import Settings, get_settings
+from app.models import Job, JobPage, JobStatus, PageStatus
+from app.schemas import JobStatusResponse, PageStatusResponse
+from app.services.s3_service import final_pdf_key, input_pdf_key
+
+
+class JobService:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+
+    def create_job(self, db: Session, filename: str, page_count: int) -> Job:
+        job = Job(filename=filename, page_count=page_count, input_pdf_key="")
+        db.add(job)
+        db.flush()
+        job.input_pdf_key = input_pdf_key(job.id)
+        db.commit()
+        db.refresh(job)
+        return job
+
+    def get_job(self, db: Session, job_id: str, with_pages: bool = False) -> Job | None:
+        statement = select(Job).where(Job.id == job_id)
+        if with_pages:
+            statement = statement.options(selectinload(Job.pages))
+        return db.execute(statement).scalar_one_or_none()
+
+    def set_status(self, db: Session, job: Job, status: str, error: str | None = None) -> None:
+        job.status = status
+        job.error = error
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+
+    def build_status_response(self, job: Job, final_pdf_url: str | None = None) -> JobStatusResponse:
+        failed_pages = sorted(page.page_no for page in job.pages if page.status == PageStatus.FAILED)
+        completed_pages = sum(1 for page in job.pages if page.status == PageStatus.COMPLETED)
+        return JobStatusResponse(
+            jobId=job.id,
+            status=job.status,
+            pageCount=job.page_count,
+            completedPages=completed_pages,
+            failedPages=failed_pages,
+            finalPdfUrl=final_pdf_url,
+            error=job.error,
+        )
+
+    def build_page_responses(self, pages: list[JobPage]) -> list[PageStatusResponse]:
+        return [
+            PageStatusResponse(
+                pageNo=page.page_no,
+                status=page.status,
+                sourceImageKey=page.source_image_key,
+                generatedImageKey=page.generated_image_key,
+                error=page.error,
+                retryCount=page.retry_count,
+            )
+            for page in sorted(pages, key=lambda item: item.page_no)
+        ]
+
+    def expected_final_pdf_key(self, job_id: str) -> str:
+        return final_pdf_key(job_id)
+
+    def can_download(self, job: Job) -> bool:
+        return job.status == JobStatus.COMPLETED and bool(job.final_pdf_key)

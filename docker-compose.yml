@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: handwritten_pdf
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handwritten_pdf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/handwritten_pdf
+      REDIS_URL: redis://redis:6379/0
+      RQ_QUEUE_NAME: pdf_jobs
+      CORS_ORIGINS: http://localhost:3000
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-replace-me-private-bucket}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2}
+      OPENAI_IMAGE_SIZE: ${OPENAI_IMAGE_SIZE:-1024x1536}
+      OPENAI_IMAGE_QUALITY: ${OPENAI_IMAGE_QUALITY:-high}
+      OPENAI_IMAGE_FORMAT: ${OPENAI_IMAGE_FORMAT:-png}
+      FINAL_A4_WIDTH_PX: ${FINAL_A4_WIDTH_PX:-2480}
+      FINAL_A4_HEIGHT_PX: ${FINAL_A4_HEIGHT_PX:-3508}
+      FINAL_PRINT_DPI: ${FINAL_PRINT_DPI:-300}
+    volumes:
+      - ./apps/api:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./apps/api
+    command: python -m app.workers.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/handwritten_pdf
+      REDIS_URL: redis://redis:6379/0
+      RQ_QUEUE_NAME: pdf_jobs
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-replace-me-private-bucket}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2}
+      OPENAI_IMAGE_SIZE: ${OPENAI_IMAGE_SIZE:-1024x1536}
+      OPENAI_IMAGE_QUALITY: ${OPENAI_IMAGE_QUALITY:-high}
+      OPENAI_IMAGE_FORMAT: ${OPENAI_IMAGE_FORMAT:-png}
+      FINAL_A4_WIDTH_PX: ${FINAL_A4_WIDTH_PX:-2480}
+      FINAL_A4_HEIGHT_PX: ${FINAL_A4_HEIGHT_PX:-3508}
+      FINAL_PRINT_DPI: ${FINAL_PRINT_DPI:-300}
+    volumes:
+      - ./apps/api:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
