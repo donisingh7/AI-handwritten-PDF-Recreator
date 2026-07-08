@@ -1,5 +1,10 @@
 import { JobProgress } from "@/components/JobProgress";
 
-export default function JobPage({ params }: { params: { jobId: string } }) {
-  return <JobProgress jobId={params.jobId} />;
+type JobPageProps = {
+  params: Promise<{ jobId: string }>;
+};
+
+export default async function JobPage({ params }: JobPageProps) {
+  const { jobId } = await params;
+  return <JobProgress jobId={jobId} />;
 }
