@@ -37,6 +37,12 @@ def normalize_processing_mode(mode: str | None, settings: Settings) -> str:
     return normalized
 
 
+def job_processing_mode(job) -> str:
+    if job.processing_mode in ProcessingMode.VALUES:
+        return job.processing_mode
+    return ProcessingMode.PREMIUM
+
+
 @router.post("/create", response_model=JobCreateResponse)
 def create_job(
     payload: JobCreateRequest,
@@ -89,6 +95,11 @@ def start_job(
     s3_service = S3Service(settings)
     if not s3_service.object_exists(job.input_pdf_key):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded PDF was not found in S3.")
+    if job_processing_mode(job) == ProcessingMode.PREMIUM and not settings.openai_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Premium Mode requires OPENAI_API_KEY. Cheap Mode can run without an OpenAI API key.",
+        )
 
     job.status = JobStatus.UPLOADED
     db.add(job)

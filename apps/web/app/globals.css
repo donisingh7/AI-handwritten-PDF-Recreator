@@ -350,6 +350,62 @@ a:focus-visible {
   transition: width 200ms ease;
 }
 
+.progress-topline {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.progress-topline div {
+  display: grid;
+  gap: 4px;
+}
+
+.progress-topline strong {
+  font-size: 18px;
+}
+
+.progress-topline span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.progress-topline div span {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.stage-track {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.stage-dot {
+  height: 7px;
+  border-radius: 999px;
+  background: #dbe7e3;
+}
+
+.stage-dot.done {
+  background: #8bb6ff;
+}
+
+.stage-dot.active {
+  background: var(--blue-ink);
+  box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.12);
+}
+
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .paper-stage {
   position: relative;
   min-height: 620px;
@@ -541,6 +597,10 @@ a:focus-visible {
   }
 
   .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-grid {
     grid-template-columns: 1fr;
   }
 

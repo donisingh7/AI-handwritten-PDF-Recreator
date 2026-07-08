@@ -10,10 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Job, JobPage, JobStatus, PageStatus, ProcessingMode
-from app.services.cheap_cleanup_service import CheapCleanupService
-from app.services.image_postprocess_service import ImagePostprocessService
 from app.services.merge_service import MergeService
-from app.services.openai_image_service import OpenAIImageService
 from app.services.pdf_service import PDFService, PDFValidationError
 from app.services.s3_service import S3Service, final_pdf_key, manifest_key, page_png_key
 
@@ -33,19 +30,22 @@ def process_job(job_id: str) -> None:
     db = SessionLocal()
     try:
         logger.info("job %s: started", job_id)
-        logger.info(
-            "job %s: OpenAI cost mode=%s size=%s quality=%s format=%s source_max=%sx%s",
-            job_id,
-            settings.openai_cost_mode_normalized,
-            settings.effective_openai_image_size,
-            settings.effective_openai_image_quality,
-            settings.effective_openai_image_format,
-            settings.effective_openai_source_max_width_px,
-            settings.effective_openai_source_max_height_px,
-        )
         job = _load_job(db, job_id)
         if job is None:
             raise RuntimeError(f"Job {job_id} not found.")
+        processing_mode = _processing_mode(job)
+        logger.info("job %s: processing mode=%s", job.id, processing_mode)
+        if processing_mode == ProcessingMode.PREMIUM:
+            logger.info(
+                "job %s: OpenAI cost mode=%s size=%s quality=%s format=%s source_max=%sx%s",
+                job.id,
+                settings.openai_cost_mode_normalized,
+                settings.effective_openai_image_size,
+                settings.effective_openai_image_quality,
+                settings.effective_openai_image_format,
+                settings.effective_openai_source_max_width_px,
+                settings.effective_openai_source_max_height_px,
+            )
 
         _set_job_status(db, job, JobStatus.RENDERING_PAGES)
         stage_started_at = time.monotonic()
@@ -76,9 +76,9 @@ def process_job(job_id: str) -> None:
 
         _set_job_status(db, job, JobStatus.PROCESSING_PAGES)
         generated_paths: dict[int, Path] = {}
-        image_service = OpenAIImageService(settings)
-        postprocess_service = ImagePostprocessService(settings)
-        cheap_cleanup_service = CheapCleanupService()
+        image_service = None
+        postprocess_service = None
+        cheap_cleanup_service = None
 
         for page in sorted(page_records, key=lambda item: item.page_no):
             source_path = source_dir / f"page_{page.page_no:03d}.png"
@@ -90,7 +90,11 @@ def process_job(job_id: str) -> None:
                 db.add(page)
                 db.commit()
 
-                if _processing_mode(job) == ProcessingMode.CHEAP:
+                if processing_mode == ProcessingMode.CHEAP:
+                    from app.services.cheap_cleanup_service import CheapCleanupService
+
+                    if cheap_cleanup_service is None:
+                        cheap_cleanup_service = CheapCleanupService()
                     cleanup_started_at = time.monotonic()
                     logger.info("job %s page %s: running cheap cleanup without OpenAI", job.id, page.page_no)
                     cheap_cleanup_service.clean_page_to_a4(
@@ -106,6 +110,13 @@ def process_job(job_id: str) -> None:
                         time.monotonic() - cleanup_started_at,
                     )
                 else:
+                    from app.services.image_postprocess_service import ImagePostprocessService
+                    from app.services.openai_image_service import OpenAIImageService
+
+                    if image_service is None:
+                        image_service = OpenAIImageService(settings)
+                    if postprocess_service is None:
+                        postprocess_service = ImagePostprocessService(settings)
                     page_started_at = time.monotonic()
                     logger.info("job %s page %s: requesting OpenAI image recreation", job.id, page.page_no)
                     image_service.recreate_page(source_path, raw_path, page.page_no)
