@@ -57,8 +57,13 @@ export function JobProgress({ jobId }: { jobId: string }) {
 
   async function handleDownload() {
     if (!status) return;
-    const url = status.finalPdfUrl || (await fetchDownloadUrl(status.jobId)).url;
-    window.location.href = url;
+    try {
+      setError(null);
+      const { url } = await fetchDownloadUrl(status.jobId);
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not prepare the download link.");
+    }
   }
 
   const pillClass = status?.status === "completed" ? "status-pill done" : status?.status?.includes("failed") ? "status-pill failed" : "status-pill";

@@ -36,7 +36,10 @@ class OpenAIImageService:
         if not self.settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured; page recreation cannot run.")
         if self._client is None:
-            self._client = OpenAI(api_key=self.settings.openai_api_key)
+            self._client = OpenAI(
+                api_key=self.settings.openai_api_key,
+                timeout=self.settings.openai_request_timeout_seconds,
+            )
         return self._client
 
     def build_prompt(self, page_no: int) -> str:

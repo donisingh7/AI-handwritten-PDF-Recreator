@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     openai_image_size: str = "1024x1536"
     openai_image_quality: str = "high"
     openai_image_format: str = "png"
+    openai_request_timeout_seconds: float = 300.0
 
     final_a4_width_px: int = 2480
     final_a4_height_px: int = 3508
