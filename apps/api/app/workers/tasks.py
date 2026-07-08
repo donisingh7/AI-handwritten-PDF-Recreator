@@ -32,6 +32,16 @@ def process_job(job_id: str) -> None:
     db = SessionLocal()
     try:
         logger.info("job %s: started", job_id)
+        logger.info(
+            "job %s: OpenAI cost mode=%s size=%s quality=%s format=%s source_max=%sx%s",
+            job_id,
+            settings.openai_cost_mode_normalized,
+            settings.effective_openai_image_size,
+            settings.effective_openai_image_quality,
+            settings.effective_openai_image_format,
+            settings.effective_openai_source_max_width_px,
+            settings.effective_openai_source_max_height_px,
+        )
         job = _load_job(db, job_id)
         if job is None:
             raise RuntimeError(f"Job {job_id} not found.")
@@ -70,7 +80,7 @@ def process_job(job_id: str) -> None:
 
         for page in sorted(page_records, key=lambda item: item.page_no):
             source_path = source_dir / f"page_{page.page_no:03d}.png"
-            raw_path = raw_dir / f"page_{page.page_no:03d}.{settings.openai_image_format}"
+            raw_path = raw_dir / f"page_{page.page_no:03d}.{settings.effective_openai_image_format}"
             cleaned_path = cleaned_dir / f"page_{page.page_no:03d}.png"
             try:
                 page.status = PageStatus.PROCESSING

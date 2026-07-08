@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     max_pdf_pages: int = 100
     max_upload_mb: int = 200
-    pdf_render_dpi: int = 200
+    pdf_render_dpi: int = 140
     local_work_dir: str = Field(
         default="/tmp/handpdf",
         validation_alias=AliasChoices("TEMP_DIR", "LOCAL_WORK_DIR"),
@@ -42,11 +42,15 @@ class Settings(BaseSettings):
     max_page_retries: int = 2
 
     openai_api_key: Optional[str] = None
+    openai_cost_mode: str = "fast"
     openai_image_model: str = "gpt-image-2"
-    openai_image_size: str = "1024x1536"
-    openai_image_quality: str = "high"
-    openai_image_format: str = "png"
-    openai_request_timeout_seconds: float = 300.0
+    openai_image_size: str = "768x1088"
+    openai_image_quality: str = "low"
+    openai_image_format: str = "webp"
+    openai_output_compression: int = 65
+    openai_request_timeout_seconds: float = 180.0
+    openai_source_max_width_px: int = 768
+    openai_source_max_height_px: int = 1088
 
     final_a4_width_px: int = 2480
     final_a4_height_px: int = 3508
@@ -62,6 +66,59 @@ class Settings(BaseSettings):
         if self.frontend_url and self.frontend_url not in origins:
             origins.append(self.frontend_url)
         return origins
+
+    @property
+    def effective_openai_image_size(self) -> str:
+        if self.openai_cost_mode_normalized == "fast":
+            return "768x1088"
+        if self.openai_cost_mode_normalized == "balanced":
+            return "896x1280"
+        return self.openai_image_size
+
+    @property
+    def effective_openai_image_quality(self) -> str:
+        if self.openai_cost_mode_normalized == "fast":
+            return "low"
+        if self.openai_cost_mode_normalized == "balanced":
+            return "medium"
+        return self.openai_image_quality
+
+    @property
+    def effective_openai_image_format(self) -> str:
+        if self.openai_cost_mode_normalized in {"fast", "balanced"}:
+            return "webp"
+        return self.openai_image_format
+
+    @property
+    def effective_openai_output_compression(self) -> int:
+        if self.openai_cost_mode_normalized == "fast":
+            return 65
+        if self.openai_cost_mode_normalized == "balanced":
+            return 75
+        return self.openai_output_compression
+
+    @property
+    def effective_openai_source_max_width_px(self) -> int:
+        if self.openai_cost_mode_normalized == "fast":
+            return 768
+        if self.openai_cost_mode_normalized == "balanced":
+            return 896
+        return self.openai_source_max_width_px
+
+    @property
+    def effective_openai_source_max_height_px(self) -> int:
+        if self.openai_cost_mode_normalized == "fast":
+            return 1088
+        if self.openai_cost_mode_normalized == "balanced":
+            return 1280
+        return self.openai_source_max_height_px
+
+    @property
+    def openai_cost_mode_normalized(self) -> str:
+        mode = self.openai_cost_mode.strip().lower()
+        if mode in {"fast", "balanced", "quality", "custom"}:
+            return mode
+        return "fast"
 
 
 @lru_cache
