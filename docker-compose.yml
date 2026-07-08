@@ -34,7 +34,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/handwritten_pdf
       REDIS_URL: redis://redis:6379/0
-      RQ_QUEUE_NAME: pdf_jobs
+      RQ_QUEUE_NAME: pdf-jobs
       CORS_ORIGINS: http://localhost:3000
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
@@ -64,7 +64,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/handwritten_pdf
       REDIS_URL: redis://redis:6379/0
-      RQ_QUEUE_NAME: pdf_jobs
+      RQ_QUEUE_NAME: pdf-jobs
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}

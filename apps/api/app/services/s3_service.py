@@ -31,14 +31,14 @@ class S3Service:
         return self.client.generate_presigned_url(
             "put_object",
             Params={"Bucket": self.settings.s3_bucket, "Key": key, "ContentType": "application/pdf"},
-            ExpiresIn=self.settings.s3_presigned_expires_seconds,
+            ExpiresIn=self.settings.signed_url_expiry_seconds,
         )
 
     def create_presigned_download_url(self, key: str) -> str:
         return self.client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.settings.s3_bucket, "Key": key},
-            ExpiresIn=self.settings.s3_presigned_expires_seconds,
+            ExpiresIn=self.settings.signed_url_expiry_seconds,
         )
 
     def object_exists(self, key: str) -> bool:

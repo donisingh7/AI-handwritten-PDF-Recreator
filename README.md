@@ -113,6 +113,66 @@ The final PDF is built only from these cleaned A4 PNGs, sorted by `page_no` asce
 - Use a private S3 bucket and configure CORS to allow browser `PUT` from the frontend origin.
 - Never expose AWS or OpenAI secrets to the frontend.
 
+## Cloud Deployment
+
+### Deployment Order
+
+1. Push the repo to GitHub.
+2. Deploy the Render API first.
+3. Collect the Render API URL.
+4. Add `NEXT_PUBLIC_API_URL` to Vercel.
+5. Deploy the Vercel frontend.
+6. Collect the Vercel frontend URL.
+7. Add `FRONTEND_URL` to Render.
+8. Add the Vercel URL to S3 CORS.
+9. Test with a 1-2 page PDF first.
+
+### Vercel Frontend Settings
+
+- Root Directory: `apps/web`
+- Framework Preset: `Next.js`
+- Install Command: `npm install`
+- Build Command: `npm run build`
+- Start Command: not required for normal Vercel Git deployments
+- Required env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_MAX_PDF_PAGES`, `NEXT_PUBLIC_MAX_UPLOAD_MB`
+
+No custom `vercel.json` is required for the frontend because Vercel can auto-detect the Next.js app when the root directory is `apps/web`.
+
+### Render API Settings
+
+- Root Directory: `apps/api`
+- Runtime: `Python 3`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+### Render Worker Settings
+
+- Root Directory: `apps/api`
+- Runtime: `Python 3`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `python -m app.workers.worker`
+
+The worker consumes the `pdf-jobs` queue by default. Keep `RQ_QUEUE_NAME=pdf-jobs` in both API and worker environments.
+
+### Free MVP Combined Render Service
+
+Use this only if you want one Render Web Service running both API and worker for a free MVP test:
+
+```bash
+sh -c "rq worker pdf-jobs --url \"$REDIS_URL\" & uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+```
+
+For production, prefer a separate API Web Service and Background Worker.
+
+### Cloud Services
+
+- Database: Supabase Postgres transaction pooler via `DATABASE_URL`.
+- Queue: Upstash Redis TLS URL via `REDIS_URL`, using `rediss://default:PASSWORD@HOST.upstash.io:6379`.
+- Storage: AWS S3 private bucket, such as `handwritten-pdf-recreator-prod` in `ap-south-1`.
+- OpenAI: set `OPENAI_API_KEY` only in Render environment variables.
+
+See [docs/CLOUD_ENV_TEMPLATE.md](docs/CLOUD_ENV_TEMPLATE.md) for the full cloud env checklist and notes.
+
 ## Complete In This MVP
 
 - Single PDF upload flow

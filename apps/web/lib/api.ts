@@ -26,6 +26,10 @@ export type PageStatus = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!config.apiUrl) {
+    throw new Error("NEXT_PUBLIC_API_URL is not configured. Add your Render API URL in Vercel environment variables.");
+  }
+
   const response = await fetch(`${config.apiUrl}${path}`, {
     ...init,
     headers: {
