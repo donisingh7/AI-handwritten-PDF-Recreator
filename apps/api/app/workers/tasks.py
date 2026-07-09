@@ -1,6 +1,7 @@
 import shutil
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +157,7 @@ def process_job(job_id: str) -> None:
                 page.status = PageStatus.COMPLETED
                 page.error = None
                 db.add(page)
+                _touch_job(job)
                 db.commit()
                 generated_paths[page.page_no] = cleaned_path
             except Exception as exc:
@@ -164,12 +166,14 @@ def process_job(job_id: str) -> None:
                 page.error = str(exc)
                 page.retry_count += 1
                 db.add(page)
+                _touch_job(job)
                 db.commit()
 
         failed_pages = [page.page_no for page in page_records if page.status == PageStatus.FAILED]
         if failed_pages:
             job.status = JobStatus.PARTIALLY_FAILED
             job.error = f"Failed pages: {', '.join(str(page_no) for page_no in failed_pages)}"
+            _touch_job(job)
             db.add(job)
             db.commit()
             _upload_manifest(db, job.id, s3)
@@ -191,6 +195,7 @@ def process_job(job_id: str) -> None:
         job.final_pdf_key = key
         job.status = JobStatus.COMPLETED
         job.error = None
+        _touch_job(job)
         db.add(job)
         db.commit()
         _upload_manifest(db, job.id, s3)
@@ -201,6 +206,7 @@ def process_job(job_id: str) -> None:
         if job is not None:
             job.status = JobStatus.FAILED
             job.error = str(exc)
+            _touch_job(job)
             db.add(job)
             db.commit()
             try:
@@ -219,9 +225,14 @@ def _load_job(db: Session, job_id: str) -> Job | None:
 
 def _set_job_status(db: Session, job: Job, status: str) -> None:
     job.status = status
+    _touch_job(job)
     db.add(job)
     db.commit()
     db.refresh(job)
+
+
+def _touch_job(job: Job) -> None:
+    job.updated_at = datetime.now(timezone.utc)
 
 
 def _ensure_page_records(db: Session, job: Job, page_count: int) -> list[JobPage]:
@@ -256,6 +267,7 @@ def _mark_page_rendered(db: Session, job: Job, page_no: int, source_key: str) ->
     page.status = PageStatus.RENDERED
     page.error = None
     db.add(page)
+    _touch_job(job)
     db.commit()
     db.refresh(page)
     return page

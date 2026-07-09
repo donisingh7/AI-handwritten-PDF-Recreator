@@ -16,6 +16,7 @@ from app.schemas import (
     StartJobResponse,
 )
 from app.services.job_service import JobService
+from app.services.queue_monitor_service import QueueMonitorService
 from app.services.s3_service import S3Service
 from app.workers.tasks import process_job
 
@@ -122,6 +123,7 @@ def get_job_status(
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
 
+    QueueMonitorService(settings).sync_failed_job(db, job)
     final_pdf_url = None
     if service.can_download(job):
         final_pdf_url = S3Service(settings).create_presigned_download_url(job.final_pdf_key)
@@ -138,6 +140,7 @@ def get_job_pages(
     job = service.get_job(db, job_id, with_pages=True)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    QueueMonitorService(settings).sync_failed_job(db, job)
     return service.build_page_responses(job.pages)
 
 
