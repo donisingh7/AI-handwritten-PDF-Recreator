@@ -1,6 +1,7 @@
 import shutil
 import logging
 import time
+import gc
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,22 @@ def process_job(job_id: str) -> None:
             )
 
         _ensure_page_records(db, job, actual_page_count)
+        if processing_mode == ProcessingMode.CHEAP:
+            _process_cheap_job_pages(
+                db=db,
+                job=job,
+                settings=settings,
+                pdf_service=pdf_service,
+                s3=s3,
+                original_pdf_path=original_pdf_path,
+                source_dir=source_dir,
+                cleaned_dir=cleaned_dir,
+                final_dir=final_dir,
+                actual_page_count=actual_page_count,
+                job_started_at=job_started_at,
+            )
+            return
+
         stage_started_at = time.monotonic()
         logger.info("job %s: rendering %s PDF page(s)", job.id, actual_page_count)
         for page_no, source_path in pdf_service.iter_render_pages_to_png(
@@ -87,7 +104,6 @@ def process_job(job_id: str) -> None:
         generated_paths: dict[int, Path] = {}
         image_service = None
         postprocess_service = None
-        cheap_cleanup_service = None
 
         for page in sorted(page_records, key=lambda item: item.page_no):
             source_path = source_dir / f"page_{page.page_no:03d}.png"
@@ -99,50 +115,30 @@ def process_job(job_id: str) -> None:
                 db.add(page)
                 db.commit()
 
-                if processing_mode == ProcessingMode.CHEAP:
-                    from app.services.cheap_cleanup_service import CheapCleanupService
+                from app.services.image_postprocess_service import ImagePostprocessService
+                from app.services.openai_image_service import OpenAIImageService
 
-                    if cheap_cleanup_service is None:
-                        cheap_cleanup_service = CheapCleanupService()
-                    cleanup_started_at = time.monotonic()
-                    logger.info("job %s page %s: running cheap cleanup without OpenAI", job.id, page.page_no)
-                    cheap_cleanup_service.clean_page_to_a4(
-                        source_path,
-                        cleaned_path,
-                        settings.final_a4_width_px,
-                        settings.final_a4_height_px,
-                    )
-                    logger.info(
-                        "job %s page %s: cheap cleanup finished in %.1fs",
-                        job.id,
-                        page.page_no,
-                        time.monotonic() - cleanup_started_at,
-                    )
-                else:
-                    from app.services.image_postprocess_service import ImagePostprocessService
-                    from app.services.openai_image_service import OpenAIImageService
-
-                    if image_service is None:
-                        image_service = OpenAIImageService(settings)
-                    if postprocess_service is None:
-                        postprocess_service = ImagePostprocessService(settings)
-                    page_started_at = time.monotonic()
-                    logger.info("job %s page %s: requesting OpenAI image recreation", job.id, page.page_no)
-                    image_service.recreate_page(source_path, raw_path, page.page_no)
-                    logger.info(
-                        "job %s page %s: OpenAI image recreation finished in %.1fs",
-                        job.id,
-                        page.page_no,
-                        time.monotonic() - page_started_at,
-                    )
-                    postprocess_started_at = time.monotonic()
-                    postprocess_service.clean_and_fit_to_a4(raw_path, cleaned_path)
-                    logger.info(
-                        "job %s page %s: image post-processing finished in %.1fs",
-                        job.id,
-                        page.page_no,
-                        time.monotonic() - postprocess_started_at,
-                    )
+                if image_service is None:
+                    image_service = OpenAIImageService(settings)
+                if postprocess_service is None:
+                    postprocess_service = ImagePostprocessService(settings)
+                page_started_at = time.monotonic()
+                logger.info("job %s page %s: requesting OpenAI image recreation", job.id, page.page_no)
+                image_service.recreate_page(source_path, raw_path, page.page_no)
+                logger.info(
+                    "job %s page %s: OpenAI image recreation finished in %.1fs",
+                    job.id,
+                    page.page_no,
+                    time.monotonic() - page_started_at,
+                )
+                postprocess_started_at = time.monotonic()
+                postprocess_service.clean_and_fit_to_a4(raw_path, cleaned_path)
+                logger.info(
+                    "job %s page %s: image post-processing finished in %.1fs",
+                    job.id,
+                    page.page_no,
+                    time.monotonic() - postprocess_started_at,
+                )
 
                 generated_key = page_png_key(job.id, page.page_no, "generated")
                 upload_started_at = time.monotonic()
@@ -222,6 +218,99 @@ def process_job(job_id: str) -> None:
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
+def _process_cheap_job_pages(
+    db: Session,
+    job: Job,
+    settings,
+    pdf_service: PDFService,
+    s3: S3Service,
+    original_pdf_path: Path,
+    source_dir: Path,
+    cleaned_dir: Path,
+    final_dir: Path,
+    actual_page_count: int,
+    job_started_at: float,
+) -> None:
+    from app.services.cheap_cleanup_service import CheapCleanupService
+
+    logger.info("job %s: Cheap mode: OpenCV/Pillow cleanup only. OpenAI skipped.", job.id)
+    cheap_cleanup_service = CheapCleanupService(
+        cleanup_max_width=settings.cheap_mode_cleanup_max_width,
+        cleanup_max_height=settings.cheap_mode_cleanup_max_height,
+        enable_advanced_cleanup=settings.cheap_mode_enable_advanced_cleanup,
+    )
+    generated_keys: list[str] = []
+
+    for page_no, source_path in pdf_service.iter_render_pages_to_png(
+        original_pdf_path,
+        source_dir,
+        dpi=settings.cheap_mode_render_dpi,
+        max_pages=settings.max_pdf_pages,
+    ):
+        cleaned_path = cleaned_dir / f"page_{page_no:03d}.png"
+        generated_key = page_png_key(job.id, page_no, "generated")
+        try:
+            logger.info("job %s: Cheap mode processing page %s/%s", job.id, page_no, actual_page_count)
+            source_key = page_png_key(job.id, page_no, "source")
+            s3.upload_file(source_path, source_key, "image/png")
+            _mark_page_rendered(db, job, page_no, source_key)
+            logger.info("job %s page %s: Rendered page %s", job.id, page_no, page_no)
+
+            _set_job_status(db, job, JobStatus.PROCESSING_PAGES)
+            page = _mark_page_processing(db, job, page_no)
+            cleanup_started_at = time.monotonic()
+            logger.info("job %s page %s: Cleaning page %s", job.id, page_no, page_no)
+            strategy = cheap_cleanup_service.clean_page_to_a4(
+                source_path,
+                cleaned_path,
+                settings.final_a4_width_px,
+                settings.final_a4_height_px,
+            )
+            if strategy == "fallback_normalize":
+                logger.warning("job %s page %s: Fallback normalize used for page %s", job.id, page_no, page_no)
+            logger.info(
+                "job %s page %s: cheap cleanup finished in %.1fs",
+                job.id,
+                page_no,
+                time.monotonic() - cleanup_started_at,
+            )
+
+            s3.upload_file(cleaned_path, generated_key, "image/png")
+            logger.info("job %s page %s: Uploaded generated page %s", job.id, page_no, page_no)
+            page.generated_image_key = generated_key
+            page.status = PageStatus.COMPLETED
+            page.error = None
+            db.add(page)
+            _touch_job(job)
+            db.commit()
+            generated_keys.append(generated_key)
+        finally:
+            _cleanup_page_files(source_path, cleaned_path)
+            logger.info("job %s page %s: Cleaned temp files for page %s", job.id, page_no, page_no)
+            del cleaned_path, generated_key
+            gc.collect()
+
+    _set_job_status(db, job, JobStatus.MERGING_PDF)
+    final_path = final_dir / "output.pdf"
+    merge_started_at = time.monotonic()
+    logger.info("job %s: merging %s generated page image(s) from S3 into PDF", job.id, len(generated_keys))
+    MergeService().merge_s3_pngs_to_pdf(generated_keys, final_path, s3)
+    logger.info("job %s: PDF merge finished in %.1fs", job.id, time.monotonic() - merge_started_at)
+
+    key = final_pdf_key(job.id)
+    upload_started_at = time.monotonic()
+    s3.upload_file(final_path, key, "application/pdf")
+    logger.info("job %s: final PDF uploaded in %.1fs", job.id, time.monotonic() - upload_started_at)
+    job.final_pdf_key = key
+    job.status = JobStatus.COMPLETED
+    job.error = None
+    _touch_job(job)
+    db.add(job)
+    db.commit()
+    _upload_manifest(db, job.id, s3)
+    logger.info("job %s: completed in %.1fs", job.id, time.monotonic() - job_started_at)
+
+
 def _load_job(db: Session, job_id: str) -> Job | None:
     return db.execute(select(Job).where(Job.id == job_id)).scalar_one_or_none()
 
@@ -270,6 +359,24 @@ def _mark_page_rendered(db: Session, job: Job, page_no: int, source_key: str) ->
     _touch_job(job)
     db.commit()
     return page
+
+
+def _mark_page_processing(db: Session, job: Job, page_no: int) -> JobPage:
+    page = db.execute(select(JobPage).where(JobPage.job_id == job.id, JobPage.page_no == page_no)).scalar_one()
+    page.status = PageStatus.PROCESSING
+    page.error = None
+    db.add(page)
+    _touch_job(job)
+    db.commit()
+    return page
+
+
+def _cleanup_page_files(*paths: Path) -> None:
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("could not delete temp page file %s", path)
 
 
 def _load_page_records(db: Session, job: Job) -> list[JobPage]:

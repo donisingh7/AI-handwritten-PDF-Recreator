@@ -34,6 +34,10 @@ DEFAULT_PROCESSING_MODE=premium
 FINAL_A4_WIDTH_PX=2480
 FINAL_A4_HEIGHT_PX=3508
 FINAL_PRINT_DPI=300
+CHEAP_MODE_RENDER_DPI=150
+CHEAP_MODE_CLEANUP_MAX_WIDTH=1654
+CHEAP_MODE_CLEANUP_MAX_HEIGHT=2339
+CHEAP_MODE_ENABLE_ADVANCED_CLEANUP=true
 
 AWS_REGION=ap-south-1
 AWS_ACCESS_KEY_ID=
@@ -54,7 +58,7 @@ PAGE_PROCESSING_CONCURRENCY=1
 MAX_PAGE_RETRIES=2
 ```
 
-Cheap Mode does not require `OPENAI_API_KEY` because it uses local OpenCV/Pillow cleanup only. Premium Mode requires `OPENAI_API_KEY`.
+Cheap Mode does not require `OPENAI_API_KEY` because it uses local OpenCV/Pillow cleanup only. It is memory-optimized for readable scans by rendering and cleaning one page at a time. Premium Mode requires `OPENAI_API_KEY` and remains the best-quality AI recreation path.
 
 ## C. Supabase Migration
 

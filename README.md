@@ -74,6 +74,10 @@ API:
 - `FINAL_A4_WIDTH_PX`
 - `FINAL_A4_HEIGHT_PX`
 - `FINAL_PRINT_DPI`
+- `CHEAP_MODE_RENDER_DPI`
+- `CHEAP_MODE_CLEANUP_MAX_WIDTH`
+- `CHEAP_MODE_CLEANUP_MAX_HEIGHT`
+- `CHEAP_MODE_ENABLE_ADVANCED_CLEANUP`
 
 Frontend:
 
@@ -85,7 +89,7 @@ Frontend:
 
 Premium Mode is the existing AI image recreation pipeline. It uses the OpenAI Image API to recreate each rendered page as a clean handwritten A4 page, then performs post-processing and PDF merge.
 
-Cheap Mode is an OpenCV/Pillow cleanup pipeline. It does not call the OpenAI Image API. It cleans the rendered source page, preserves the original handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
+Cheap Mode is a memory-optimized OpenCV/Pillow cleanup pipeline. It does not call the OpenAI Image API. It renders and cleans one page at a time, uses lower-DPI source rendering by default, preserves readable handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
 
 Cheap Mode is recommended for large PDFs and readable scans. Premium Mode is recommended for the best visual handwritten recreation.
 

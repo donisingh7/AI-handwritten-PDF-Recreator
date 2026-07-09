@@ -1,5 +1,6 @@
 from pathlib import Path
 from collections.abc import Iterator
+import gc
 
 import fitz
 
@@ -51,4 +52,8 @@ class PDFService:
                 page_no = index + 1
                 output_path = output_dir / f"page_{page_no:03d}.png"
                 pixmap.save(str(output_path))
-                yield page_no, output_path
+                try:
+                    yield page_no, output_path
+                finally:
+                    del pixmap, page
+                    gc.collect()

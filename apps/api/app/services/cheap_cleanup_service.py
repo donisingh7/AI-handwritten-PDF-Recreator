@@ -1,32 +1,69 @@
 from pathlib import Path
+import gc
+import logging
 
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
+logger = logging.getLogger(__name__)
+
 
 class CheapCleanupService:
+    def __init__(
+        self,
+        cleanup_max_width: int = 1654,
+        cleanup_max_height: int = 2339,
+        enable_advanced_cleanup: bool = True,
+    ) -> None:
+        self.cleanup_max_width = cleanup_max_width
+        self.cleanup_max_height = cleanup_max_height
+        self.enable_advanced_cleanup = enable_advanced_cleanup
+        cv2.setNumThreads(1)
+
     def clean_page_to_a4(
         self,
         source_image_path: Path | str,
         output_image_path: Path | str,
         final_width: int,
         final_height: int,
-    ) -> Path:
+    ) -> str:
         source_path = Path(source_image_path)
         output_path = Path(output_image_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        image: Image.Image | None = None
+        working_image: Image.Image | None = None
+        cleaned: Image.Image | None = None
+        cropped: Image.Image | None = None
+        canvas: Image.Image | None = None
         try:
+            if not self.enable_advanced_cleanup:
+                self._fallback_fit_to_a4(source_path, output_path, final_width, final_height)
+                return "fallback_normalize"
+
             with Image.open(source_path) as source_image:
                 image = ImageOps.exif_transpose(source_image).convert("RGB")
-            cleaned = self._clean_scan(image)
-            cleaned = self._crop_safe_borders(cleaned)
-            canvas = self._fit_to_a4_canvas(cleaned, final_width, final_height)
+            working_image = self._resize_for_cleanup(image)
+            cleaned = self._clean_scan(working_image)
+            cropped = self._crop_safe_borders(cleaned)
+            canvas = self._fit_to_a4_canvas(cropped, final_width, final_height)
             canvas.save(output_path, format="PNG", dpi=(300, 300), optimize=True)
-        except Exception:
+            return "advanced_cleanup"
+        except Exception as exc:
+            logger.warning("Cheap cleanup advanced path failed for %s; using fallback normalize: %s", source_path, exc)
             self._fallback_fit_to_a4(source_path, output_path, final_width, final_height)
-        return output_path
+            return "fallback_normalize"
+        finally:
+            self._close_images(image, working_image, cleaned, cropped, canvas)
+            del image, working_image, cleaned, cropped, canvas
+            gc.collect()
+
+    def _resize_for_cleanup(self, image: Image.Image) -> Image.Image:
+        max_size = (self.cleanup_max_width, self.cleanup_max_height)
+        if image.width <= max_size[0] and image.height <= max_size[1]:
+            return image.copy()
+        return ImageOps.contain(image, max_size, method=Image.Resampling.LANCZOS)
 
     def _clean_scan(self, image: Image.Image) -> Image.Image:
         rgb = np.asarray(image, dtype=np.uint8)
@@ -39,7 +76,9 @@ class CheapCleanupService:
             background = cv2.GaussianBlur(channel, (0, 0), sigmaX=25, sigmaY=25)
             normalized = cv2.divide(channel, background, scale=255)
             normalized_channels.append(normalized)
+            del channel, background, normalized
         normalized_rgb = cv2.merge(normalized_channels)
+        del normalized_channels
 
         hsv = cv2.cvtColor(normalized_rgb, cv2.COLOR_RGB2HSV)
         gray = cv2.cvtColor(normalized_rgb, cv2.COLOR_RGB2GRAY)
@@ -62,7 +101,9 @@ class CheapCleanupService:
         # Light denoising smooths scan grain but avoids thresholding away strokes.
         denoised = cv2.fastNlMeansDenoisingColored(cleaned, None, 4, 4, 7, 21)
         denoised[ink_mask] = cleaned[ink_mask]
-        return Image.fromarray(denoised, mode="RGB")
+        result = Image.fromarray(denoised, mode="RGB")
+        del rgb, normalized_rgb, hsv, gray, saturation, ink_mask, paper_mask, cleaned, denoised
+        return result
 
     def _remove_small_components(self, image: np.ndarray, ink_mask: np.ndarray) -> np.ndarray:
         output = image.copy()
@@ -73,6 +114,7 @@ class CheapCleanupService:
             height = stats[component_index, cv2.CC_STAT_HEIGHT]
             if area <= 10 and width <= 5 and height <= 5:
                 output[labels == component_index] = [255, 255, 255]
+        del labels, stats
         return output
 
     def _crop_safe_borders(self, image: Image.Image) -> Image.Image:
@@ -81,6 +123,7 @@ class CheapCleanupService:
         content_mask = gray < 245
         ys, xs = np.where(content_mask)
         if xs.size == 0 or ys.size == 0:
+            del arr, gray, content_mask, ys, xs
             return image
 
         height, width = gray.shape
@@ -96,19 +139,26 @@ class CheapCleanupService:
         crop_width = right - left + 1
         crop_height = bottom - top + 1
         if crop_width < width * 0.45 or crop_height < height * 0.45:
+            del arr, gray, content_mask, ys, xs
             return image
-        return image.crop((left, top, right + 1, bottom + 1))
+        cropped = image.crop((left, top, right + 1, bottom + 1))
+        del arr, gray, content_mask, ys, xs
+        return cropped
 
     def _fit_to_a4_canvas(self, image: Image.Image, final_width: int, final_height: int) -> Image.Image:
         margin_x = int(final_width * 0.025)
         margin_y = int(final_height * 0.025)
         max_size = (final_width - margin_x * 2, final_height - margin_y * 2)
 
-        fitted = ImageOps.contain(image.convert("RGB"), max_size, method=Image.Resampling.LANCZOS)
+        rgb_image = image.convert("RGB")
+        fitted = ImageOps.contain(rgb_image, max_size, method=Image.Resampling.LANCZOS)
         canvas = Image.new("RGB", (final_width, final_height), "white")
         x = (final_width - fitted.width) // 2
         y = (final_height - fitted.height) // 2
         canvas.paste(fitted, (x, y))
+        fitted.close()
+        if fitted is not rgb_image:
+            rgb_image.close()
         return canvas
 
     def _fallback_fit_to_a4(
@@ -118,7 +168,19 @@ class CheapCleanupService:
         final_width: int,
         final_height: int,
     ) -> None:
+        image: Image.Image | None = None
+        canvas: Image.Image | None = None
         with Image.open(source_image_path) as source_image:
             image = ImageOps.exif_transpose(source_image).convert("RGB")
-        canvas = self._fit_to_a4_canvas(image, final_width, final_height)
-        canvas.save(output_image_path, format="PNG", dpi=(300, 300), optimize=True)
+        try:
+            canvas = self._fit_to_a4_canvas(image, final_width, final_height)
+            canvas.save(output_image_path, format="PNG", dpi=(300, 300), optimize=True)
+        finally:
+            self._close_images(image, canvas)
+            del image, canvas
+            gc.collect()
+
+    def _close_images(self, *images: Image.Image | None) -> None:
+        for image in images:
+            if image is not None:
+                image.close()

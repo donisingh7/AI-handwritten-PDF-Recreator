@@ -60,13 +60,15 @@ Premium Mode treats the model output as an intermediate image. The worker perfor
 
 This keeps the final PDF printable even when the image model returns a lower-resolution portrait PNG.
 
-Cheap Mode skips the OpenAI call. It performs:
+Cheap Mode skips the OpenAI call. It is memory-optimized and performs one page at a time:
 
-1. source PDF page render to PNG
-2. local scan cleanup with OpenCV/Pillow
-3. preservation of original handwriting and diagrams where possible
-4. aspect-ratio-preserving fit onto `2480x3508` white A4 canvas
-5. cleaned PNG upload to S3
-6. PDF merge from cleaned PNGs at A4 page size
+1. source PDF page render to PNG at `CHEAP_MODE_RENDER_DPI`
+2. source PNG upload to S3
+3. local scan cleanup with OpenCV/Pillow using bounded intermediate dimensions
+4. fallback A4 normalization if advanced cleanup fails
+5. aspect-ratio-preserving fit onto `2480x3508` white A4 canvas
+6. cleaned PNG upload to S3
+7. per-page temp file deletion and garbage collection
+8. PDF merge from generated page images at A4 page size
 
 `manifest.json` includes `processingMode`, and old jobs without a stored mode are treated as `premium`.

@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     final_a4_width_px: int = 2480
     final_a4_height_px: int = 3508
     final_print_dpi: int = 300
+    cheap_mode_render_dpi: int = 150
+    cheap_mode_cleanup_max_width: int = 1654
+    cheap_mode_cleanup_max_height: int = 2339
+    cheap_mode_enable_advanced_cleanup: bool = True
 
     @property
     def max_upload_bytes(self) -> int:
