@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, RefreshCw } from "lucide-react";
-import { fetchDownloadUrl, fetchJobPages, fetchJobStatus, JobStatus, PageStatus, ProcessingMode } from "@/lib/api";
+import { fetchDownloadUrl, fetchJobPages, fetchJobStatus, JobStatus, PageStatus, ProcessingMode, startJob } from "@/lib/api";
 
 const terminalStatuses = new Set(["completed", "failed", "partially_failed"]);
 const stageOrder = ["created", "uploaded", "queued", "rendering_pages", "processing_pages", "merging_pdf", "completed"];
@@ -116,6 +116,7 @@ export function JobProgress({ jobId }: { jobId: string }) {
   const [pages, setPages] = useState<PageStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [visibleStartedAt] = useState(() => Date.now());
   const terminalRef = useRef(false);
@@ -175,6 +176,21 @@ export function JobProgress({ jobId }: { jobId: string }) {
       window.location.href = url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not prepare the download link.");
+    }
+  }
+
+  async function handleRetry() {
+    if (!status) return;
+    try {
+      setRetrying(true);
+      setError(null);
+      await startJob(status.jobId);
+      terminalRef.current = false;
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not retry this job.");
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -288,6 +304,12 @@ export function JobProgress({ jobId }: { jobId: string }) {
               <button className="primary-button" type="button" onClick={handleDownload}>
                 <Download size={18} />
                 Download PDF
+              </button>
+            )}
+            {(status?.status === "failed" || status?.status === "partially_failed") && (
+              <button className="primary-button" type="button" onClick={handleRetry} disabled={retrying}>
+                {retrying ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+                Retry Job
               </button>
             )}
             <Link className="secondary-button" href="/">

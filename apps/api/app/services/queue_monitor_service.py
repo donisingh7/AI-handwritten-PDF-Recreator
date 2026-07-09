@@ -38,7 +38,14 @@ class QueueMonitorService:
             StartedJobRegistry(queue.name, connection=redis_conn).cleanup()
 
             failed_job = self._find_matching_job(redis_conn, FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids(), job.id)
+            failed_attempts = self._count_matching_jobs(
+                redis_conn,
+                FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids(),
+                job.id,
+            )
             if failed_job is not None:
+                if self._auto_requeue(db, queue, job, failed_attempts):
+                    return True
                 self._mark_failed(db, job, self._failure_reason(failed_job))
                 logger.warning("job %s: synced failed RQ job %s to database", job.id, failed_job.id)
                 return True
@@ -54,6 +61,8 @@ class QueueMonitorService:
                 return False
 
             if job.status in ACTIVE_JOB_STATUSES:
+                if self._auto_requeue(db, queue, job, failed_attempts):
+                    return True
                 self._mark_failed(
                     db,
                     job,
@@ -65,12 +74,45 @@ class QueueMonitorService:
             logger.warning("job %s: could not sync queue status: %s", job.id, exc)
         return False
 
+    def _auto_requeue(self, db: Session, queue: Queue, job: Job, failed_attempts: int) -> bool:
+        if self.settings.job_auto_retry_limit <= 0 or failed_attempts > self.settings.job_auto_retry_limit:
+            return False
+
+        from app.workers.tasks import process_job
+
+        retry_number = max(1, failed_attempts)
+        queue.enqueue(process_job, job.id, job_timeout="6h", result_ttl=86400, failure_ttl=86400)
+        job.status = JobStatus.QUEUED
+        job.error = (
+            "The worker stopped while processing this job. "
+            f"Retrying automatically ({retry_number}/{self.settings.job_auto_retry_limit})."
+        )
+        job.updated_at = datetime.now(timezone.utc)
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        logger.warning(
+            "job %s: automatically requeued after worker stop (%s/%s)",
+            job.id,
+            retry_number,
+            self.settings.job_auto_retry_limit,
+        )
+        return True
+
     def _find_matching_job(self, redis_conn: Redis, rq_job_ids: list[str], app_job_id: str) -> RQJob | None:
         for rq_job_id in rq_job_ids:
             rq_job = self._fetch_rq_job(redis_conn, rq_job_id)
             if rq_job is not None and self._matches_app_job(rq_job, app_job_id):
                 return rq_job
         return None
+
+    def _count_matching_jobs(self, redis_conn: Redis, rq_job_ids: list[str], app_job_id: str) -> int:
+        count = 0
+        for rq_job_id in rq_job_ids:
+            rq_job = self._fetch_rq_job(redis_conn, rq_job_id)
+            if rq_job is not None and self._matches_app_job(rq_job, app_job_id):
+                count += 1
+        return count
 
     def _fetch_rq_job(self, redis_conn: Redis, rq_job_id: str) -> RQJob | None:
         try:

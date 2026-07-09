@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     worker_concurrency: int = 1
     page_processing_concurrency: int = 1
     max_page_retries: int = 2
+    job_auto_retry_limit: int = 3
 
     default_processing_mode: str = "premium"
 
