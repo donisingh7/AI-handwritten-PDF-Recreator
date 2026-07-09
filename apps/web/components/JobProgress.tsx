@@ -23,6 +23,13 @@ function formatDuration(seconds: number): string {
   return `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`;
 }
 
+function secondsSince(value?: string): number | null {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return null;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+}
+
 function stageCopy(status: JobStatus | null, pages: PageStatus[]): { title: string; detail: string } {
   const mode = status?.processingMode || "premium";
   switch (status?.status) {
@@ -154,6 +161,11 @@ export function JobProgress({ jobId }: { jobId: string }) {
   const currentStage = stageCopy(status, pages);
   const currentStageIndex = status ? stageOrder.indexOf(status.status) : -1;
   const estimate = estimateCopy(status, pages, elapsedSeconds);
+  const backendIdleSeconds = secondsSince(status?.updatedAt);
+  const staleThresholdSeconds = status?.processingMode === "premium" ? 360 : 180;
+  const isPossiblyStalled = Boolean(
+    status && !terminalStatuses.has(status.status) && backendIdleSeconds !== null && backendIdleSeconds > staleThresholdSeconds
+  );
 
   async function handleDownload() {
     if (!status) return;
@@ -190,6 +202,13 @@ export function JobProgress({ jobId }: { jobId: string }) {
             </div>
           )}
 
+          {isPossiblyStalled ? (
+            <div className="notice" style={{ marginTop: 18 }}>
+              <AlertTriangle size={18} />
+              <span>No backend progress for {formatDuration(backendIdleSeconds ?? 0)}. The worker may have stopped; refresh once or retry after redeploy.</span>
+            </div>
+          ) : null}
+
           <div style={{ marginTop: 28 }}>
             <div className="progress-topline">
               <div>
@@ -224,6 +243,10 @@ export function JobProgress({ jobId }: { jobId: string }) {
             <div className="metric">
               <span>Estimate</span>
               <strong>{estimate}</strong>
+            </div>
+            <div className="metric">
+              <span>Last update</span>
+              <strong>{backendIdleSeconds === null ? "-" : `${formatDuration(backendIdleSeconds)} ago`}</strong>
             </div>
           </div>
 

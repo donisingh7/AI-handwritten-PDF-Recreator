@@ -1,9 +1,10 @@
 import logging
+from datetime import datetime, timezone
 
 from redis import Redis
 from rq import Queue
 from rq.job import Job as RQJob
-from rq.registry import FailedJobRegistry, StartedJobRegistry
+from rq.registry import DeferredJobRegistry, FailedJobRegistry, ScheduledJobRegistry, StartedJobRegistry
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -36,23 +37,40 @@ class QueueMonitorService:
             # frontend from showing a stale in-progress state forever.
             StartedJobRegistry(queue.name, connection=redis_conn).cleanup()
 
-            failed_registry = FailedJobRegistry(queue.name, connection=redis_conn)
-            for rq_job_id in failed_registry.get_job_ids():
-                rq_job = self._fetch_rq_job(redis_conn, rq_job_id)
-                if rq_job is None or not self._matches_app_job(rq_job, job.id):
-                    continue
+            failed_job = self._find_matching_job(redis_conn, FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids(), job.id)
+            if failed_job is not None:
+                self._mark_failed(db, job, self._failure_reason(failed_job))
+                logger.warning("job %s: synced failed RQ job %s to database", job.id, failed_job.id)
+                return True
 
-                reason = self._failure_reason(rq_job)
-                job.status = JobStatus.FAILED
-                job.error = reason
-                db.add(job)
-                db.commit()
-                db.refresh(job)
-                logger.warning("job %s: synced failed RQ job %s to database", job.id, rq_job.id)
+            active_ids = [
+                *queue.job_ids,
+                *StartedJobRegistry(queue.name, connection=redis_conn).get_job_ids(),
+                *DeferredJobRegistry(queue.name, connection=redis_conn).get_job_ids(),
+                *ScheduledJobRegistry(queue.name, connection=redis_conn).get_job_ids(),
+            ]
+            active_job = self._find_matching_job(redis_conn, active_ids, job.id)
+            if active_job is not None:
+                return False
+
+            if job.status in ACTIVE_JOB_STATUSES:
+                self._mark_failed(
+                    db,
+                    job,
+                    "The background worker is no longer tracking this job. It may have crashed, restarted, or been redeployed before completion. Retry after the latest worker is deployed.",
+                )
+                logger.warning("job %s: marked failed because no RQ job is tracking it", job.id)
                 return True
         except Exception as exc:
             logger.warning("job %s: could not sync queue status: %s", job.id, exc)
         return False
+
+    def _find_matching_job(self, redis_conn: Redis, rq_job_ids: list[str], app_job_id: str) -> RQJob | None:
+        for rq_job_id in rq_job_ids:
+            rq_job = self._fetch_rq_job(redis_conn, rq_job_id)
+            if rq_job is not None and self._matches_app_job(rq_job, app_job_id):
+                return rq_job
+        return None
 
     def _fetch_rq_job(self, redis_conn: Redis, rq_job_id: str) -> RQJob | None:
         try:
@@ -69,3 +87,11 @@ class QueueMonitorService:
             tail = rq_job.exc_info.strip().splitlines()[-1]
             reason = f"{reason} RQ: {tail[:220]}"
         return reason
+
+    def _mark_failed(self, db: Session, job: Job, reason: str) -> None:
+        job.status = JobStatus.FAILED
+        job.error = reason
+        job.updated_at = datetime.now(timezone.utc)
+        db.add(job)
+        db.commit()
+        db.refresh(job)

@@ -45,6 +45,8 @@ class JobService:
             failedPages=failed_pages,
             finalPdfUrl=final_pdf_url,
             error=job.error,
+            createdAt=job.created_at,
+            updatedAt=job.updated_at,
         )
 
     def build_page_responses(self, pages: list[JobPage]) -> list[PageStatusResponse]:

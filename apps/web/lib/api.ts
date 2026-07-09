@@ -18,6 +18,8 @@ export type JobStatus = {
   failedPages: number[];
   finalPdfUrl: string | null;
   error: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type PageStatus = {

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -45,6 +47,8 @@ class JobStatusResponse(BaseModel):
     failed_pages: list[int] = Field(alias="failedPages")
     final_pdf_url: str | None = Field(default=None, alias="finalPdfUrl")
     error: str | None = None
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
 
 
 class DownloadUrlResponse(BaseModel):
