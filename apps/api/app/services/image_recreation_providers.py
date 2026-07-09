@@ -67,6 +67,8 @@ class ReplicateProvider(ImageRecreationProvider):
         model_config: ModelOption,
     ) -> Path:
         del page_no
+        if not self.settings.replicate_provider_enabled:
+            raise ProviderConfigurationError("REPLICATE_PROVIDER_ENABLED is not true.")
         if not self.settings.replicate_api_token:
             raise ProviderConfigurationError("REPLICATE_API_TOKEN is not configured.")
         if "/" not in model_config.model:
@@ -106,8 +108,10 @@ class FalProvider(ImageRecreationProvider):
         model_config: ModelOption,
     ) -> Path:
         del page_no
+        if not self.settings.fal_provider_enabled:
+            raise ProviderConfigurationError("FAL_PROVIDER_ENABLED is not true.")
         if not self.settings.effective_fal_api_key:
-            raise ProviderConfigurationError("FAL_API_KEY or FAL_KEY is not configured.")
+            raise ProviderConfigurationError("FAL_KEY is not configured.")
         url = f"https://queue.fal.run/{model_config.model}"
         payload = {
             "prompt": prompt,
@@ -139,6 +143,8 @@ class HuggingFaceProvider(ImageRecreationProvider):
         model_config: ModelOption,
     ) -> Path:
         del page_no
+        if not self.settings.hf_provider_enabled:
+            raise ProviderConfigurationError("HF_PROVIDER_ENABLED is not true.")
         if not self.settings.hf_token:
             raise ProviderConfigurationError("HF_TOKEN is not configured.")
         url = f"https://api-inference.huggingface.co/models/{model_config.model}"
@@ -165,23 +171,6 @@ class HuggingFaceProvider(ImageRecreationProvider):
         return output_image_path
 
 
-class NvidiaNimProvider(ImageRecreationProvider):
-    def recreate_page(
-        self,
-        source_image_path: Path,
-        prompt: str,
-        output_image_path: Path,
-        page_no: int,
-        model_config: ModelOption,
-    ) -> Path:
-        del source_image_path, prompt, output_image_path, page_no, model_config
-        if not (self.settings.nvidia_api_key and self.settings.nvidia_base_url and self.settings.nvidia_image_model):
-            raise ProviderConfigurationError("NVIDIA_API_KEY, NVIDIA_BASE_URL, and NVIDIA_IMAGE_MODEL are required.")
-        raise ProviderUnsupportedError(
-            "The selected NVIDIA NIM model is not confirmed to support image-to-image editing for handwritten page recreation."
-        )
-
-
 def get_image_recreation_provider(model_config: ModelOption, settings: Settings | None = None) -> ImageRecreationProvider:
     resolved_settings = settings or get_settings()
     providers: dict[str, type[ImageRecreationProvider]] = {
@@ -189,7 +178,6 @@ def get_image_recreation_provider(model_config: ModelOption, settings: Settings 
         "replicate": ReplicateProvider,
         "fal": FalProvider,
         "huggingface": HuggingFaceProvider,
-        "nvidia": NvidiaNimProvider,
     }
     provider_cls = providers.get(model_config.provider)
     if provider_cls is None:

@@ -46,7 +46,6 @@ class ModelOptionsService:
             self._replicate_qwen(),
             self._fal_flux_kontext(),
             self._huggingface_qwen(),
-            self._nvidia_nim(),
         ]
 
     def get_option(self, option_id: str | None) -> ModelOption | None:
@@ -94,6 +93,7 @@ class ModelOptionsService:
         )
 
     def _replicate_qwen(self) -> ModelOption:
+        configured = bool(self.settings.replicate_provider_enabled and self.settings.replicate_api_token)
         return ModelOption(
             id="replicate:qwen-image-edit",
             provider="replicate",
@@ -101,13 +101,16 @@ class ModelOptionsService:
             label="Qwen Image Edit via Replicate",
             description="Experimental, lower cost",
             mode=ProcessingMode.PREMIUM,
-            enabled=bool(self.settings.replicate_api_token),
+            enabled=configured,
             tier="experimental",
             experimental=True,
-            disabled_reason=None if self.settings.replicate_api_token else "REPLICATE_API_TOKEN is not configured.",
+            disabled_reason=None
+            if configured
+            else "Set REPLICATE_PROVIDER_ENABLED=true and REPLICATE_API_TOKEN to enable this option.",
         )
 
     def _fal_flux_kontext(self) -> ModelOption:
+        configured = bool(self.settings.fal_provider_enabled and self.settings.effective_fal_api_key)
         return ModelOption(
             id="fal:flux-kontext",
             provider="fal",
@@ -115,13 +118,14 @@ class ModelOptionsService:
             label="FLUX Kontext via fal.ai",
             description="Experimental, strong image editing",
             mode=ProcessingMode.PREMIUM,
-            enabled=bool(self.settings.effective_fal_api_key),
+            enabled=configured,
             tier="experimental",
             experimental=True,
-            disabled_reason=None if self.settings.effective_fal_api_key else "FAL_API_KEY or FAL_KEY is not configured.",
+            disabled_reason=None if configured else "Set FAL_PROVIDER_ENABLED=true and FAL_KEY to enable this option.",
         )
 
     def _huggingface_qwen(self) -> ModelOption:
+        configured = bool(self.settings.hf_provider_enabled and self.settings.hf_token)
         return ModelOption(
             id="huggingface:qwen-image-edit",
             provider="huggingface",
@@ -129,25 +133,8 @@ class ModelOptionsService:
             label="Hugging Face Qwen",
             description="Experimental",
             mode=ProcessingMode.PREMIUM,
-            enabled=bool(self.settings.hf_token),
-            tier="experimental",
-            experimental=True,
-            disabled_reason=None if self.settings.hf_token else "HF_TOKEN is not configured.",
-        )
-
-    def _nvidia_nim(self) -> ModelOption:
-        configured = bool(self.settings.nvidia_api_key and self.settings.nvidia_base_url and self.settings.nvidia_image_model)
-        return ModelOption(
-            id="nvidia:nim-image",
-            provider="nvidia",
-            model=self.settings.nvidia_image_model or "nvidia-image-model",
-            label="NVIDIA NIM",
-            description="Experimental",
-            mode=ProcessingMode.PREMIUM,
             enabled=configured,
             tier="experimental",
             experimental=True,
-            disabled_reason=None
-            if configured
-            else "NVIDIA_API_KEY, NVIDIA_BASE_URL, and NVIDIA_IMAGE_MODEL are required.",
+            disabled_reason=None if configured else "Set HF_PROVIDER_ENABLED=true and HF_TOKEN to enable this option.",
         )

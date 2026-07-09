@@ -71,16 +71,16 @@ class Settings(BaseSettings):
     cheap_remove_light_lines: bool = True
     cheap_ink_darken: bool = True
 
+    replicate_provider_enabled: bool = False
     replicate_api_token: Optional[str] = None
     replicate_qwen_image_edit_model: str = "qwen/qwen-image-edit"
+    fal_provider_enabled: bool = False
     fal_api_key: Optional[str] = None
     fal_key: Optional[str] = None
     fal_flux_kontext_model: str = "fal-ai/flux-pro/kontext"
+    hf_provider_enabled: bool = False
     hf_token: Optional[str] = None
     hf_qwen_image_edit_model: str = "Qwen/Qwen-Image-Edit"
-    nvidia_api_key: Optional[str] = None
-    nvidia_base_url: Optional[str] = None
-    nvidia_image_model: Optional[str] = None
 
     @property
     def max_upload_bytes(self) -> int:
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
 
     @property
     def effective_fal_api_key(self) -> Optional[str]:
-        return self.fal_api_key or self.fal_key
+        return self.fal_key or self.fal_api_key
 
 
 @lru_cache

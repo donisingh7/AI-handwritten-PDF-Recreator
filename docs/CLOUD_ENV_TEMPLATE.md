@@ -46,16 +46,15 @@ CHEAP_DESPECKLE_STRENGTH=medium
 CHEAP_REMOVE_LIGHT_LINES=true
 CHEAP_INK_DARKEN=true
 
+REPLICATE_PROVIDER_ENABLED=false
 REPLICATE_API_TOKEN=
 REPLICATE_QWEN_IMAGE_EDIT_MODEL=qwen/qwen-image-edit
-FAL_API_KEY=
+FAL_PROVIDER_ENABLED=false
 FAL_KEY=
 FAL_FLUX_KONTEXT_MODEL=fal-ai/flux-pro/kontext
+HF_PROVIDER_ENABLED=false
 HF_TOKEN=
 HF_QWEN_IMAGE_EDIT_MODEL=Qwen/Qwen-Image-Edit
-NVIDIA_API_KEY=
-NVIDIA_BASE_URL=
-NVIDIA_IMAGE_MODEL=
 
 AWS_REGION=ap-south-1
 AWS_ACCESS_KEY_ID=
@@ -76,7 +75,7 @@ PAGE_PROCESSING_CONCURRENCY=1
 MAX_PAGE_RETRIES=2
 ```
 
-Cheap Mode does not require `OPENAI_API_KEY` or any provider token because it uses local OpenCV/Pillow cleanup only. It is memory-optimized for readable scans by rendering and cleaning one page at a time. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; other provider tokens only enable their corresponding experimental selector options.
+Cheap Mode does not require `OPENAI_API_KEY` or any provider token because it uses local OpenCV/Pillow cleanup only. It is memory-optimized for readable scans by rendering and cleaning one page at a time. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; Replicate, fal.ai, and Hugging Face require their `*_PROVIDER_ENABLED=true` flag plus their token before appearing as enabled selector options.
 
 `CHEAP_CLEANUP_PRESET=strong_print` is the recommended default for printable output. Use `light` for already-clean scans and `high_contrast` for dim grey scans where losing faint marks is acceptable.
 

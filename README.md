@@ -85,16 +85,15 @@ API:
 - `CHEAP_DESPECKLE_STRENGTH`
 - `CHEAP_REMOVE_LIGHT_LINES`
 - `CHEAP_INK_DARKEN`
+- `REPLICATE_PROVIDER_ENABLED`
 - `REPLICATE_API_TOKEN`
 - `REPLICATE_QWEN_IMAGE_EDIT_MODEL`
-- `FAL_API_KEY`
+- `FAL_PROVIDER_ENABLED`
 - `FAL_KEY`
 - `FAL_FLUX_KONTEXT_MODEL`
+- `HF_PROVIDER_ENABLED`
 - `HF_TOKEN`
 - `HF_QWEN_IMAGE_EDIT_MODEL`
-- `NVIDIA_API_KEY`
-- `NVIDIA_BASE_URL`
-- `NVIDIA_IMAGE_MODEL`
 
 Frontend:
 
@@ -104,7 +103,7 @@ Frontend:
 
 ## Image Generation And Print Pipeline
 
-Premium Mode is the AI image recreation pipeline. The default and fully supported provider is OpenAI GPT Image 2, which gives the highest-quality handwritten recreation and higher cost. The UI can show configured experimental provider/model options such as Qwen Image Edit via Replicate, FLUX Kontext via fal.ai, Hugging Face Qwen, and NVIDIA NIM. Experimental providers do not expose secrets to the frontend and should be tested with a 1-page PDF before larger jobs.
+Premium Mode is the AI image recreation pipeline. The default and fully supported provider is OpenAI GPT Image 2, which gives the highest-quality handwritten recreation and higher cost. The UI can show configured experimental provider/model options such as Qwen Image Edit via Replicate, FLUX Kontext via fal.ai, and Hugging Face Qwen. Experimental providers do not expose secrets to the frontend and should be tested with a 1-page PDF before larger jobs.
 
 Cheap Mode is a memory-optimized OpenCV/Pillow cleanup pipeline. It does not call OpenAI or any other AI provider. It cleans existing handwriting instead of recreating new handwriting. It renders and cleans one page at a time, uses lower-DPI source rendering by default, preserves readable handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
 

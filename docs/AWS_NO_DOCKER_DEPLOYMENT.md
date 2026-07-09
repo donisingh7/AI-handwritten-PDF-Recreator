@@ -146,16 +146,15 @@ CHEAP_DESPECKLE_STRENGTH=medium
 CHEAP_REMOVE_LIGHT_LINES=true
 CHEAP_INK_DARKEN=true
 
+REPLICATE_PROVIDER_ENABLED=false
 REPLICATE_API_TOKEN=
 REPLICATE_QWEN_IMAGE_EDIT_MODEL=qwen/qwen-image-edit
-FAL_API_KEY=
+FAL_PROVIDER_ENABLED=false
 FAL_KEY=
 FAL_FLUX_KONTEXT_MODEL=fal-ai/flux-pro/kontext
+HF_PROVIDER_ENABLED=false
 HF_TOKEN=
 HF_QWEN_IMAGE_EDIT_MODEL=Qwen/Qwen-Image-Edit
-NVIDIA_API_KEY=
-NVIDIA_BASE_URL=
-NVIDIA_IMAGE_MODEL=
 ```
 
 Protect the env file:
@@ -165,7 +164,7 @@ sudo chown root:root /etc/handpdf.env
 sudo chmod 600 /etc/handpdf.env
 ```
 
-Cheap Mode does not require `OPENAI_API_KEY` or any other AI provider token. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; optional provider tokens only enable experimental selector options.
+Cheap Mode does not require `OPENAI_API_KEY` or any other AI provider token. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; Replicate, fal.ai, and Hugging Face require their `*_PROVIDER_ENABLED=true` flag plus their token before appearing as enabled selector options.
 
 ## 7. Install systemd Services
 
