@@ -16,6 +16,7 @@ from app.schemas import (
     StartJobResponse,
 )
 from app.services.job_service import JobService
+from app.services.model_options_service import DEFAULT_PREMIUM_MODEL_OPTION_ID, ModelOptionsService
 from app.services.queue_monitor_service import QueueMonitorService
 from app.services.s3_service import S3Service
 from app.workers.tasks import process_job
@@ -34,6 +35,16 @@ def normalize_processing_mode(mode: str | None, settings: Settings) -> str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="processingMode must be either 'premium' or 'cheap'.",
+        )
+    return normalized
+
+
+def normalize_cleanup_preset(preset: str | None, settings: Settings) -> str:
+    normalized = (preset or settings.cheap_cleanup_preset_normalized).strip().lower()
+    if normalized not in {"light", "strong_print", "high_contrast"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cleanupPreset must be 'light', 'strong_print', or 'high_contrast'.",
         )
     return normalized
 
@@ -64,12 +75,28 @@ def create_job(
         )
 
     processing_mode = normalize_processing_mode(payload.processing_mode, settings)
+    cleanup_preset = normalize_cleanup_preset(payload.cleanup_preset, settings) if processing_mode == ProcessingMode.CHEAP else None
+    ai_provider = None
+    ai_model = None
+    model_option_id = None
+    if processing_mode == ProcessingMode.PREMIUM:
+        model_option_id = payload.model_option_id or DEFAULT_PREMIUM_MODEL_OPTION_ID
+        model_option = ModelOptionsService(settings).get_option(model_option_id)
+        if model_option is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown model option: {model_option_id}")
+        ai_provider = model_option.provider
+        ai_model = model_option.model
+
     service = JobService(settings)
     job = service.create_job(
         db,
         filename=payload.filename,
         page_count=payload.page_count,
         processing_mode=processing_mode,
+        ai_provider=ai_provider,
+        ai_model=ai_model,
+        model_option_id=model_option_id,
+        cleanup_preset=cleanup_preset,
     )
     upload_url = S3Service(settings).create_presigned_upload_url(job.input_pdf_key)
     return JobCreateResponse(
@@ -77,6 +104,10 @@ def create_job(
         uploadUrl=upload_url,
         s3Key=job.input_pdf_key,
         processingMode=job.processing_mode,
+        aiProvider=job.ai_provider,
+        aiModel=job.ai_model,
+        modelOptionId=job.model_option_id,
+        cleanupPreset=job.cleanup_preset,
     )
 
 
@@ -96,11 +127,11 @@ def start_job(
     s3_service = S3Service(settings)
     if not s3_service.object_exists(job.input_pdf_key):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded PDF was not found in S3.")
-    if job_processing_mode(job) == ProcessingMode.PREMIUM and not settings.openai_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Premium Mode requires OPENAI_API_KEY. Cheap Mode can run without an OpenAI API key.",
-        )
+    if job_processing_mode(job) == ProcessingMode.PREMIUM:
+        try:
+            ModelOptionsService(settings).require_enabled_option(job.model_option_id or DEFAULT_PREMIUM_MODEL_OPTION_ID)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     job.status = JobStatus.UPLOADED
     db.add(job)

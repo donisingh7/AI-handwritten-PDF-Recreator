@@ -51,6 +51,10 @@ class Job(Base):
         default=ProcessingMode.PREMIUM,
         server_default=ProcessingMode.PREMIUM,
     )
+    ai_provider: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    ai_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    model_option_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cleanup_preset: Mapped[str | None] = mapped_column(String(40), nullable=True)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default=JobStatus.CREATED, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

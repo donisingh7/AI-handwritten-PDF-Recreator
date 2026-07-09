@@ -36,12 +36,12 @@ class OpenAIImageService:
     def build_prompt(self, page_no: int) -> str:
         return PROMPT_TEMPLATE.format(page_no=page_no)
 
-    def recreate_page(self, source_image_path: Path, output_path: Path, page_no: int) -> Path:
+    def recreate_page(self, source_image_path: Path, output_path: Path, page_no: int, model_override: str | None = None) -> Path:
         prompt = self.build_prompt(page_no)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         openai_source_path = self._prepare_source_for_openai(source_image_path, output_path.parent, page_no)
         request_kwargs = {
-            "model": self.settings.openai_image_model,
+            "model": model_override or self.settings.openai_image_model,
             "prompt": prompt,
             "size": self.settings.effective_openai_image_size,
             "quality": self.settings.effective_openai_image_quality,

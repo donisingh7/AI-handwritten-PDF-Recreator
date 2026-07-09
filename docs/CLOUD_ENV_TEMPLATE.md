@@ -25,6 +25,7 @@ FRONTEND_URL=
 
 OPENAI_API_KEY=
 OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_MINI_IMAGE_MODEL=
 OPENAI_IMAGE_SIZE=1024x1536
 OPENAI_IMAGE_QUALITY=high
 OPENAI_IMAGE_FORMAT=png
@@ -38,6 +39,23 @@ CHEAP_MODE_RENDER_DPI=150
 CHEAP_MODE_CLEANUP_MAX_WIDTH=1654
 CHEAP_MODE_CLEANUP_MAX_HEIGHT=2339
 CHEAP_MODE_ENABLE_ADVANCED_CLEANUP=true
+CHEAP_CLEANUP_PRESET=strong_print
+CHEAP_BACKGROUND_STRENGTH=0.85
+CHEAP_CONTRAST_STRENGTH=1.25
+CHEAP_DESPECKLE_STRENGTH=medium
+CHEAP_REMOVE_LIGHT_LINES=true
+CHEAP_INK_DARKEN=true
+
+REPLICATE_API_TOKEN=
+REPLICATE_QWEN_IMAGE_EDIT_MODEL=qwen/qwen-image-edit
+FAL_API_KEY=
+FAL_KEY=
+FAL_FLUX_KONTEXT_MODEL=fal-ai/flux-pro/kontext
+HF_TOKEN=
+HF_QWEN_IMAGE_EDIT_MODEL=Qwen/Qwen-Image-Edit
+NVIDIA_API_KEY=
+NVIDIA_BASE_URL=
+NVIDIA_IMAGE_MODEL=
 
 AWS_REGION=ap-south-1
 AWS_ACCESS_KEY_ID=
@@ -58,7 +76,9 @@ PAGE_PROCESSING_CONCURRENCY=1
 MAX_PAGE_RETRIES=2
 ```
 
-Cheap Mode does not require `OPENAI_API_KEY` because it uses local OpenCV/Pillow cleanup only. It is memory-optimized for readable scans by rendering and cleaning one page at a time. Premium Mode requires `OPENAI_API_KEY` and remains the best-quality AI recreation path.
+Cheap Mode does not require `OPENAI_API_KEY` or any provider token because it uses local OpenCV/Pillow cleanup only. It is memory-optimized for readable scans by rendering and cleaning one page at a time. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; other provider tokens only enable their corresponding experimental selector options.
+
+`CHEAP_CLEANUP_PRESET=strong_print` is the recommended default for printable output. Use `light` for already-clean scans and `high_contrast` for dim grey scans where losing faint marks is acceptable.
 
 ## C. Supabase Migration
 
@@ -67,6 +87,18 @@ Run this once before deploying the processing-mode release:
 ```sql
 ALTER TABLE jobs
 ADD COLUMN IF NOT EXISTS processing_mode VARCHAR(20) NOT NULL DEFAULT 'premium';
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS ai_provider TEXT;
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS ai_model TEXT;
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS model_option_id TEXT;
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS cleanup_preset TEXT;
 
 UPDATE jobs
 SET processing_mode = 'premium'

@@ -10,6 +10,8 @@ class JobCreateRequest(BaseModel):
     file_size: int = Field(alias="fileSize", gt=0)
     page_count: int = Field(alias="pageCount", gt=0)
     processing_mode: str | None = Field(default=None, alias="processingMode")
+    model_option_id: str | None = Field(default=None, alias="modelOptionId")
+    cleanup_preset: str | None = Field(default=None, alias="cleanupPreset")
 
 
 class JobCreateResponse(BaseModel):
@@ -19,6 +21,10 @@ class JobCreateResponse(BaseModel):
     upload_url: str = Field(alias="uploadUrl")
     s3_key: str = Field(alias="s3Key")
     processing_mode: str = Field(alias="processingMode")
+    ai_provider: str | None = Field(default=None, alias="aiProvider")
+    ai_model: str | None = Field(default=None, alias="aiModel")
+    model_option_id: str | None = Field(default=None, alias="modelOptionId")
+    cleanup_preset: str | None = Field(default=None, alias="cleanupPreset")
 
 
 class StartJobResponse(BaseModel):
@@ -42,6 +48,10 @@ class JobStatusResponse(BaseModel):
     job_id: str = Field(alias="jobId")
     status: str
     processing_mode: str = Field(alias="processingMode")
+    ai_provider: str | None = Field(default=None, alias="aiProvider")
+    ai_model: str | None = Field(default=None, alias="aiModel")
+    model_option_id: str | None = Field(default=None, alias="modelOptionId")
+    cleanup_preset: str | None = Field(default=None, alias="cleanupPreset")
     page_count: int = Field(alias="pageCount")
     completed_pages: int = Field(alias="completedPages")
     failed_pages: list[int] = Field(alias="failedPages")
@@ -58,3 +68,18 @@ class DownloadUrlResponse(BaseModel):
 class RetryPageResponse(BaseModel):
     status: str
     message: str
+
+
+class ModelOptionResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    provider: str
+    model: str
+    label: str
+    description: str
+    mode: str
+    enabled: bool
+    tier: str
+    experimental: bool = False
+    disabled_reason: str | None = Field(default=None, alias="disabledReason")

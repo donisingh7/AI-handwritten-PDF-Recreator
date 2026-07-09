@@ -5,14 +5,36 @@ export type CreateJobResponse = {
   uploadUrl: string;
   s3Key: string;
   processingMode: ProcessingMode;
+  aiProvider: string | null;
+  aiModel: string | null;
+  modelOptionId: string | null;
+  cleanupPreset: CleanupPreset | null;
 };
 
 export type ProcessingMode = "premium" | "cheap";
+export type CleanupPreset = "light" | "strong_print" | "high_contrast";
+
+export type ModelOption = {
+  id: string;
+  provider: string;
+  model: string;
+  label: string;
+  description: string;
+  mode: ProcessingMode;
+  enabled: boolean;
+  tier: string;
+  experimental: boolean;
+  disabledReason: string | null;
+};
 
 export type JobStatus = {
   jobId: string;
   status: string;
   processingMode: ProcessingMode;
+  aiProvider: string | null;
+  aiModel: string | null;
+  modelOptionId: string | null;
+  cleanupPreset: CleanupPreset | null;
   pageCount: number;
   completedPages: number;
   failedPages: number[];
@@ -58,10 +80,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function createJob(filename: string, fileSize: number, pageCount: number, processingMode: ProcessingMode): Promise<CreateJobResponse> {
+export type CreateJobOptions = {
+  modelOptionId?: string | null;
+  cleanupPreset?: CleanupPreset | null;
+};
+
+export function fetchModels(): Promise<ModelOption[]> {
+  return request<ModelOption[]>("/models");
+}
+
+export function createJob(
+  filename: string,
+  fileSize: number,
+  pageCount: number,
+  processingMode: ProcessingMode,
+  options: CreateJobOptions = {}
+): Promise<CreateJobResponse> {
   return request<CreateJobResponse>("/jobs/create", {
     method: "POST",
-    body: JSON.stringify({ filename, fileSize, pageCount, processingMode })
+    body: JSON.stringify({
+      filename,
+      fileSize,
+      pageCount,
+      processingMode,
+      modelOptionId: options.modelOptionId,
+      cleanupPreset: options.cleanupPreset
+    })
   });
 }
 

@@ -4,6 +4,7 @@ pydantic-settings==2.7.1
 SQLAlchemy==2.0.36
 psycopg2-binary==2.9.10
 boto3==1.35.90
+requests==2.32.3
 redis==5.2.1
 rq==2.1.0
 PyMuPDF==1.25.1

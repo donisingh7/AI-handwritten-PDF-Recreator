@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     openai_cost_mode: str = "fast"
     openai_image_model: str = "gpt-image-2"
+    openai_mini_image_model: Optional[str] = None
     openai_image_size: str = "768x1088"
     openai_image_quality: str = "low"
     openai_image_format: str = "webp"
@@ -63,6 +64,23 @@ class Settings(BaseSettings):
     cheap_mode_cleanup_max_width: int = 1654
     cheap_mode_cleanup_max_height: int = 2339
     cheap_mode_enable_advanced_cleanup: bool = True
+    cheap_cleanup_preset: str = "strong_print"
+    cheap_background_strength: float = 0.85
+    cheap_contrast_strength: float = 1.25
+    cheap_despeckle_strength: str = "medium"
+    cheap_remove_light_lines: bool = True
+    cheap_ink_darken: bool = True
+
+    replicate_api_token: Optional[str] = None
+    replicate_qwen_image_edit_model: str = "qwen/qwen-image-edit"
+    fal_api_key: Optional[str] = None
+    fal_key: Optional[str] = None
+    fal_flux_kontext_model: str = "fal-ai/flux-pro/kontext"
+    hf_token: Optional[str] = None
+    hf_qwen_image_edit_model: str = "Qwen/Qwen-Image-Edit"
+    nvidia_api_key: Optional[str] = None
+    nvidia_base_url: Optional[str] = None
+    nvidia_image_model: Optional[str] = None
 
     @property
     def max_upload_bytes(self) -> int:
@@ -134,6 +152,17 @@ class Settings(BaseSettings):
         if mode in {"fast", "balanced", "quality", "custom"}:
             return mode
         return "fast"
+
+    @property
+    def cheap_cleanup_preset_normalized(self) -> str:
+        preset = self.cheap_cleanup_preset.strip().lower()
+        if preset in {"light", "strong_print", "high_contrast"}:
+            return preset
+        return "strong_print"
+
+    @property
+    def effective_fal_api_key(self) -> Optional[str]:
+        return self.fal_api_key or self.fal_key
 
 
 @lru_cache

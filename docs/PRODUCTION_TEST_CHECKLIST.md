@@ -47,7 +47,10 @@ Expected response:
 Run these from the Vercel frontend after `NEXT_PUBLIC_API_URL` points to the AWS API:
 
 - Cheap Mode 1-page PDF
+- Cheap Mode 1-page PDF with `strong_print`
+- Cheap Mode 1-page PDF with `high_contrast` on a grey scan
 - Premium Mode 1-page PDF
+- Premium Mode 1-page PDF with OpenAI GPT Image 2
 - Cheap Mode 5-page PDF
 - Cheap Mode 20-page PDF
 - Cheap Mode 50-page PDF
@@ -56,12 +59,13 @@ For Cheap Mode, confirm logs contain:
 
 ```text
 Cheap mode: OpenCV/Pillow cleanup only. OpenAI skipped.
+cleanup preset=strong_print
 Cheap mode processing page X/Y
 Uploaded generated page X
 Cleaned temp files for page X
 ```
 
-For Premium Mode, confirm the OpenAI image recreation logs appear only when Premium Mode is selected.
+For Premium Mode, confirm the selected provider/model is logged and OpenAI image recreation logs appear only when Premium Mode is selected.
 
 ## S3 Checks
 
@@ -80,6 +84,8 @@ In the Supabase `jobs` table:
 
 - `status` becomes `completed`
 - `processing_mode` is `cheap` or `premium`
+- `model_option_id` is populated for new Premium jobs
+- `cleanup_preset` is populated for new Cheap jobs
 - `final_pdf_key` is populated
 - `error` is empty for successful jobs
 

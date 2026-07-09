@@ -40,8 +40,13 @@ input {
   font: inherit;
 }
 
+select {
+  font: inherit;
+}
+
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 a:focus-visible {
   outline: 3px solid rgba(29, 78, 216, 0.35);
   outline-offset: 3px;
@@ -209,6 +214,75 @@ a:focus-visible {
 .selected-mode p {
   margin: 0;
   color: #166534;
+}
+
+.option-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.option-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.option-header div {
+  display: grid;
+  gap: 4px;
+}
+
+.option-header span,
+.select-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.option-header strong {
+  font-size: 18px;
+}
+
+.option-header svg {
+  color: var(--blue-ink);
+}
+
+.select-field {
+  display: grid;
+  gap: 7px;
+}
+
+.select-field select {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fbfdfc;
+  color: var(--ink);
+}
+
+.select-field select:disabled {
+  cursor: not-allowed;
+  color: #7b8885;
+  background: #eef6f4;
+}
+
+.option-copy,
+.option-warning {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.option-warning {
+  color: #8a4b0f;
 }
 
 .file-input-wrap {

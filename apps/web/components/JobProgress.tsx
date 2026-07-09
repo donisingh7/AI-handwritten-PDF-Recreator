@@ -253,6 +253,10 @@ export function JobProgress({ jobId }: { jobId: string }) {
               <strong>{modeLabel(status?.processingMode)}</strong>
             </div>
             <div className="metric">
+              <span>{status?.processingMode === "cheap" ? "Cleanup" : "Model"}</span>
+              <strong>{status?.processingMode === "cheap" ? status?.cleanupPreset?.replaceAll("_", " ") || "-" : status?.aiModel || "-"}</strong>
+            </div>
+            <div className="metric">
               <span>Elapsed</span>
               <strong>{formatDuration(elapsedSeconds)}</strong>
             </div>

@@ -67,6 +67,7 @@ API:
 - `PDF_RENDER_DPI`
 - `OPENAI_API_KEY`
 - `OPENAI_IMAGE_MODEL`
+- `OPENAI_MINI_IMAGE_MODEL`
 - `OPENAI_IMAGE_SIZE`
 - `OPENAI_IMAGE_QUALITY`
 - `OPENAI_IMAGE_FORMAT`
@@ -78,6 +79,22 @@ API:
 - `CHEAP_MODE_CLEANUP_MAX_WIDTH`
 - `CHEAP_MODE_CLEANUP_MAX_HEIGHT`
 - `CHEAP_MODE_ENABLE_ADVANCED_CLEANUP`
+- `CHEAP_CLEANUP_PRESET`
+- `CHEAP_BACKGROUND_STRENGTH`
+- `CHEAP_CONTRAST_STRENGTH`
+- `CHEAP_DESPECKLE_STRENGTH`
+- `CHEAP_REMOVE_LIGHT_LINES`
+- `CHEAP_INK_DARKEN`
+- `REPLICATE_API_TOKEN`
+- `REPLICATE_QWEN_IMAGE_EDIT_MODEL`
+- `FAL_API_KEY`
+- `FAL_KEY`
+- `FAL_FLUX_KONTEXT_MODEL`
+- `HF_TOKEN`
+- `HF_QWEN_IMAGE_EDIT_MODEL`
+- `NVIDIA_API_KEY`
+- `NVIDIA_BASE_URL`
+- `NVIDIA_IMAGE_MODEL`
 
 Frontend:
 
@@ -87,11 +104,17 @@ Frontend:
 
 ## Image Generation And Print Pipeline
 
-Premium Mode is the existing AI image recreation pipeline. It uses the OpenAI Image API to recreate each rendered page as a clean handwritten A4 page, then performs post-processing and PDF merge.
+Premium Mode is the AI image recreation pipeline. The default and fully supported provider is OpenAI GPT Image 2, which gives the highest-quality handwritten recreation and higher cost. The UI can show configured experimental provider/model options such as Qwen Image Edit via Replicate, FLUX Kontext via fal.ai, Hugging Face Qwen, and NVIDIA NIM. Experimental providers do not expose secrets to the frontend and should be tested with a 1-page PDF before larger jobs.
 
-Cheap Mode is a memory-optimized OpenCV/Pillow cleanup pipeline. It does not call the OpenAI Image API. It renders and cleans one page at a time, uses lower-DPI source rendering by default, preserves readable handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
+Cheap Mode is a memory-optimized OpenCV/Pillow cleanup pipeline. It does not call OpenAI or any other AI provider. It cleans existing handwriting instead of recreating new handwriting. It renders and cleans one page at a time, uses lower-DPI source rendering by default, preserves readable handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
 
 Cheap Mode is recommended for large PDFs and readable scans. Premium Mode is recommended for the best visual handwritten recreation.
+
+Cheap Mode cleanup presets:
+
+- `light`: conservative cleanup for already clear scans.
+- `strong_print`: default, stronger whitening, contrast, shadow cleanup, and printable improvement.
+- `high_contrast`: most aggressive cleanup for dim or grey scans; may lose faint marks.
 
 Every generated page is then normalized to `2480x3508` pixels at `300` DPI, which matches A4 print sizing. The post-processing service:
 
@@ -112,11 +135,14 @@ The final PDF is built only from these cleaned A4 PNGs, sorted by `page_no` asce
   "filename": "file.pdf",
   "fileSize": 12345,
   "pageCount": 10,
-  "processingMode": "premium"
+  "processingMode": "premium",
+  "modelOptionId": "openai:gpt-image-2"
 }
 ```
 
 Allowed values are `premium` and `cheap`. If `processingMode` is missing, the backend defaults to `premium` for backward compatibility.
+
+For Cheap Mode, pass `cleanupPreset` as `light`, `strong_print`, or `high_contrast`. For Premium Mode, if no model is selected, the backend defaults to `openai:gpt-image-2` for backward compatibility.
 
 ## How To Test With One PDF
 

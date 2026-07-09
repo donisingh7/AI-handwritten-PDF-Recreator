@@ -35,9 +35,16 @@ def ensure_runtime_columns() -> None:
     if not inspector.has_table("jobs"):
         return
     columns = {column["name"] for column in inspector.get_columns("jobs")}
-    if "processing_mode" in columns:
-        return
     with engine.begin() as connection:
-        connection.execute(
-            text("ALTER TABLE jobs ADD COLUMN processing_mode VARCHAR(20) NOT NULL DEFAULT 'premium'")
-        )
+        if "processing_mode" not in columns:
+            connection.execute(
+                text("ALTER TABLE jobs ADD COLUMN processing_mode VARCHAR(20) NOT NULL DEFAULT 'premium'")
+            )
+        if "ai_provider" not in columns:
+            connection.execute(text("ALTER TABLE jobs ADD COLUMN ai_provider VARCHAR(80)"))
+        if "ai_model" not in columns:
+            connection.execute(text("ALTER TABLE jobs ADD COLUMN ai_model VARCHAR(255)"))
+        if "model_option_id" not in columns:
+            connection.execute(text("ALTER TABLE jobs ADD COLUMN model_option_id VARCHAR(255)"))
+        if "cleanup_preset" not in columns:
+            connection.execute(text("ALTER TABLE jobs ADD COLUMN cleanup_preset VARCHAR(40)"))

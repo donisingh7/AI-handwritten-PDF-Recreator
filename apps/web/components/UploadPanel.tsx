@@ -1,13 +1,14 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PDFDocument } from "pdf-lib";
 import { AlertTriangle, CheckCircle2, FileText, Loader2, ScanLine, Sparkles, UploadCloud, type LucideIcon } from "lucide-react";
-import { createJob, ProcessingMode, startJob, uploadPdf } from "@/lib/api";
+import { CleanupPreset, createJob, fetchModels, ModelOption, ProcessingMode, startJob, uploadPdf } from "@/lib/api";
 import { config, maxUploadBytes } from "@/lib/config";
 
 type UploadState = "idle" | "validating" | "ready" | "creating" | "uploading" | "starting";
+type ModelState = "idle" | "loading" | "ready" | "failed";
 
 const modeOptions: Array<{
   mode: ProcessingMode;
@@ -41,6 +42,28 @@ const modeOptions: Array<{
   }
 ];
 
+const cleanupOptions: Array<{
+  value: CleanupPreset;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "light",
+    label: "Light",
+    description: "Conservative cleanup for already clear scans."
+  },
+  {
+    value: "strong_print",
+    label: "Strong Printable",
+    description: "Recommended default for whiter, cleaner printable pages."
+  },
+  {
+    value: "high_contrast",
+    label: "High Contrast",
+    description: "Most aggressive cleanup for dim grey scans; may lose faint marks."
+  }
+];
+
 export function UploadPanel() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -49,13 +72,41 @@ export function UploadPanel() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [state, setState] = useState<UploadState>("idle");
   const [selectedMode, setSelectedMode] = useState<ProcessingMode | null>(null);
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [modelState, setModelState] = useState<ModelState>("loading");
+  const [selectedModelOptionId, setSelectedModelOptionId] = useState<string>("openai:gpt-image-2");
+  const [cleanupPreset, setCleanupPreset] = useState<CleanupPreset>("strong_print");
 
   const selectedModeOption = modeOptions.find((option) => option.mode === selectedMode) || null;
+  const premiumModelOptions = useMemo(() => modelOptions.filter((option) => option.mode === "premium"), [modelOptions]);
+  const selectedModelOption = premiumModelOptions.find((option) => option.id === selectedModelOptionId) || premiumModelOptions[0] || null;
+  const selectedCleanupOption = cleanupOptions.find((option) => option.value === cleanupPreset) || cleanupOptions[1];
 
   const selectedSize = useMemo(() => {
     if (!file) return "No file";
     return `${(file.size / 1024 / 1024).toFixed(2)} MB`;
   }, [file]);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchModels()
+      .then((options) => {
+        if (!isMounted) return;
+        setModelOptions(options);
+        const defaultOption = options.find((option) => option.id === "openai:gpt-image-2") || options.find((option) => option.enabled) || options[0];
+        if (defaultOption) {
+          setSelectedModelOptionId(defaultOption.id);
+        }
+        setModelState("ready");
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setModelState("failed");
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] || null;
@@ -100,10 +151,17 @@ export function UploadPanel() {
 
   async function handleStart() {
     if (!file || !pageCount || !selectedMode) return;
+    if (selectedMode === "premium" && !selectedModelOption) {
+      setError("Select a premium model before starting.");
+      return;
+    }
     setError(null);
     try {
       setState("creating");
-      const job = await createJob(file.name, file.size, pageCount, selectedMode);
+      const job = await createJob(file.name, file.size, pageCount, selectedMode, {
+        modelOptionId: selectedMode === "premium" ? selectedModelOption?.id : null,
+        cleanupPreset: selectedMode === "cheap" ? cleanupPreset : null
+      });
       setState("uploading");
       await uploadPdf(job.uploadUrl, file, setUploadProgress);
       setState("starting");
@@ -116,6 +174,7 @@ export function UploadPanel() {
   }
 
   const isBusy = ["validating", "creating", "uploading", "starting"].includes(state);
+  const isPremiumModelUnavailable = selectedMode === "premium" && (!selectedModelOption || !selectedModelOption.enabled);
   const actionLabel =
     state === "creating" ? "Creating job" : state === "uploading" ? "Uploading PDF" : state === "starting" ? "Starting worker" : "Start Processing";
 
@@ -149,6 +208,66 @@ export function UploadPanel() {
           <span>Selected mode</span>
           <strong>{selectedModeOption.title}</strong>
           <p>{selectedModeOption.subtitle}</p>
+        </div>
+      )}
+
+      {selectedMode === "premium" && (
+        <div className="option-panel">
+          <div className="option-header">
+            <div>
+              <span>Premium model</span>
+              <strong>{selectedModelOption?.label || "Loading models"}</strong>
+            </div>
+            {modelState === "loading" ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+          </div>
+          <label className="select-field">
+            <span>Provider / model</span>
+            <select
+              value={selectedModelOptionId}
+              onChange={(event) => setSelectedModelOptionId(event.target.value)}
+              disabled={isBusy || modelState === "loading" || !premiumModelOptions.length}
+            >
+              {premiumModelOptions.map((option) => (
+                <option disabled={!option.enabled} key={option.id} value={option.id}>
+                  {option.label}
+                  {option.enabled ? "" : " (not configured)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="option-copy">
+            {selectedModelOption
+              ? selectedModelOption.description
+              : modelState === "failed"
+                ? "Could not load model options from the backend."
+                : "Loading available premium models..."}
+          </p>
+          {selectedModelOption?.disabledReason ? <p className="option-warning">{selectedModelOption.disabledReason}</p> : null}
+          <p className="option-warning">Different models may change text accuracy and output style. Test 1 page first.</p>
+        </div>
+      )}
+
+      {selectedMode === "cheap" && (
+        <div className="option-panel">
+          <div className="option-header">
+            <div>
+              <span>Cheap cleanup</span>
+              <strong>{selectedCleanupOption.label}</strong>
+            </div>
+            <ScanLine size={18} />
+          </div>
+          <label className="select-field">
+            <span>Cleanup level</span>
+            <select value={cleanupPreset} onChange={(event) => setCleanupPreset(event.target.value as CleanupPreset)} disabled={isBusy}>
+              {cleanupOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="option-copy">{selectedCleanupOption.description}</p>
+          <p className="option-warning">Cheap mode cleans existing handwriting. It does not recreate new handwriting.</p>
         </div>
       )}
 
@@ -208,7 +327,7 @@ export function UploadPanel() {
       )}
 
       <div className="action-row">
-        <button className="primary-button" type="button" disabled={!file || !pageCount || !selectedMode || isBusy} onClick={handleStart}>
+        <button className="primary-button" type="button" disabled={!file || !pageCount || !selectedMode || isBusy || isPremiumModelUnavailable} onClick={handleStart}>
           {isBusy ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
           {actionLabel}
         </button>

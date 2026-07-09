@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Job, JobPage, JobStatus, PageStatus, ProcessingMode
 from app.services.merge_service import MergeService
+from app.services.model_options_service import DEFAULT_PREMIUM_MODEL_OPTION_ID, ModelOption, ModelOptionsService
 from app.services.pdf_service import PDFService, PDFValidationError
 from app.services.s3_service import S3Service, final_pdf_key, manifest_key, page_png_key
 
@@ -37,7 +38,16 @@ def process_job(job_id: str) -> None:
             raise RuntimeError(f"Job {job_id} not found.")
         processing_mode = _processing_mode(job)
         logger.info("job %s: processing mode=%s", job.id, processing_mode)
+        premium_model_option: ModelOption | None = None
         if processing_mode == ProcessingMode.PREMIUM:
+            premium_model_option = _premium_model_option(job, settings)
+            logger.info(
+                "job %s: premium provider=%s model=%s modelOptionId=%s",
+                job.id,
+                premium_model_option.provider,
+                premium_model_option.model,
+                premium_model_option.id,
+            )
             logger.info(
                 "job %s: OpenAI cost mode=%s size=%s quality=%s format=%s source_max=%sx%s",
                 job.id,
@@ -116,17 +126,31 @@ def process_job(job_id: str) -> None:
                 db.commit()
 
                 from app.services.image_postprocess_service import ImagePostprocessService
-                from app.services.openai_image_service import OpenAIImageService
+                from app.services.image_recreation_providers import get_image_recreation_provider
 
                 if image_service is None:
-                    image_service = OpenAIImageService(settings)
+                    if premium_model_option is None:
+                        premium_model_option = _premium_model_option(job, settings)
+                    image_service = get_image_recreation_provider(premium_model_option, settings)
                 if postprocess_service is None:
                     postprocess_service = ImagePostprocessService(settings)
                 page_started_at = time.monotonic()
-                logger.info("job %s page %s: requesting OpenAI image recreation", job.id, page.page_no)
-                image_service.recreate_page(source_path, raw_path, page.page_no)
                 logger.info(
-                    "job %s page %s: OpenAI image recreation finished in %.1fs",
+                    "job %s page %s: requesting %s image recreation with %s",
+                    job.id,
+                    page.page_no,
+                    premium_model_option.provider if premium_model_option else "unknown",
+                    premium_model_option.model if premium_model_option else "unknown",
+                )
+                image_service.recreate_page(
+                    source_path,
+                    _premium_prompt(page.page_no),
+                    raw_path,
+                    page.page_no,
+                    premium_model_option,
+                )
+                logger.info(
+                    "job %s page %s: premium image recreation finished in %.1fs",
                     job.id,
                     page.page_no,
                     time.monotonic() - page_started_at,
@@ -233,11 +257,22 @@ def _process_cheap_job_pages(
 ) -> None:
     from app.services.cheap_cleanup_service import CheapCleanupService
 
-    logger.info("job %s: Cheap mode: OpenCV/Pillow cleanup only. OpenAI skipped.", job.id)
+    cleanup_preset = job.cleanup_preset or settings.cheap_cleanup_preset_normalized
+    logger.info(
+        "job %s: Cheap mode: OpenCV/Pillow cleanup only. OpenAI skipped. cleanup preset=%s",
+        job.id,
+        cleanup_preset,
+    )
     cheap_cleanup_service = CheapCleanupService(
         cleanup_max_width=settings.cheap_mode_cleanup_max_width,
         cleanup_max_height=settings.cheap_mode_cleanup_max_height,
         enable_advanced_cleanup=settings.cheap_mode_enable_advanced_cleanup,
+        preset=cleanup_preset,
+        background_strength=settings.cheap_background_strength,
+        contrast_strength=settings.cheap_contrast_strength,
+        despeckle_strength=settings.cheap_despeckle_strength,
+        remove_light_lines=settings.cheap_remove_light_lines,
+        ink_darken=settings.cheap_ink_darken,
     )
     generated_keys: list[str] = []
 
@@ -260,20 +295,39 @@ def _process_cheap_job_pages(
             page = _mark_page_processing(db, job, page_no)
             cleanup_started_at = time.monotonic()
             logger.info("job %s page %s: Cleaning page %s", job.id, page_no, page_no)
-            strategy = cheap_cleanup_service.clean_page_to_a4(
+            cleanup_result = cheap_cleanup_service.clean_page_to_a4(
                 source_path,
                 cleaned_path,
                 settings.final_a4_width_px,
                 settings.final_a4_height_px,
             )
-            if strategy == "fallback_normalize":
+            if cleanup_result.fallback_used:
                 logger.warning("job %s page %s: Fallback normalize used for page %s", job.id, page_no, page_no)
             logger.info(
-                "job %s page %s: cheap cleanup finished in %.1fs",
+                (
+                    "job %s page %s: cheap cleanup finished in %.1fs preset=%s strategy=%s "
+                    "input=%sx%s output=%sx%s fallback=%s visual_change_score=%s changed_pixel_ratio=%s"
+                ),
                 job.id,
                 page_no,
                 time.monotonic() - cleanup_started_at,
+                cleanup_preset,
+                cleanup_result.strategy,
+                cleanup_result.input_size[0],
+                cleanup_result.input_size[1],
+                cleanup_result.output_size[0],
+                cleanup_result.output_size[1],
+                cleanup_result.fallback_used,
+                _format_metric(cleanup_result.visual_change_score),
+                _format_metric(cleanup_result.changed_pixel_ratio),
             )
+            if (
+                cleanup_result.visual_change_score is not None
+                and cleanup_result.visual_change_score < 0.012
+                and cleanup_result.changed_pixel_ratio is not None
+                and cleanup_result.changed_pixel_ratio < 0.025
+            ):
+                logger.warning("Cheap cleanup produced minimal visual change for page %s", page_no)
 
             s3.upload_file(cleaned_path, generated_key, "image/png")
             logger.info("job %s page %s: Uploaded generated page %s", job.id, page_no, page_no)
@@ -386,11 +440,17 @@ def _load_page_records(db: Session, job: Job) -> list[JobPage]:
 def _upload_manifest(db: Session, job_id: str, s3: S3Service) -> None:
     job = db.execute(select(Job).where(Job.id == job_id)).scalar_one()
     pages = db.execute(select(JobPage).where(JobPage.job_id == job_id).order_by(JobPage.page_no)).scalars().all()
+    processing_mode = _processing_mode(job)
+    is_premium = processing_mode == ProcessingMode.PREMIUM
     manifest: dict[str, Any] = {
         "jobId": job.id,
         "filename": job.filename,
         "status": job.status,
-        "processingMode": _processing_mode(job),
+        "processingMode": processing_mode,
+        "aiProvider": job.ai_provider or ("openai" if is_premium else None),
+        "aiModel": job.ai_model or ("gpt-image-2" if is_premium else None),
+        "modelOptionId": job.model_option_id or (DEFAULT_PREMIUM_MODEL_OPTION_ID if is_premium else None),
+        "cleanupPreset": job.cleanup_preset or (s3.settings.cheap_cleanup_preset_normalized if processing_mode == ProcessingMode.CHEAP else None),
         "pageCount": job.page_count,
         "inputPdfKey": job.input_pdf_key,
         "finalPdfKey": job.final_pdf_key,
@@ -414,3 +474,28 @@ def _processing_mode(job: Job) -> str:
     if job.processing_mode in ProcessingMode.VALUES:
         return job.processing_mode
     return ProcessingMode.PREMIUM
+
+
+def _premium_model_option(job: Job, settings) -> ModelOption:
+    option_id = job.model_option_id or DEFAULT_PREMIUM_MODEL_OPTION_ID
+    service = ModelOptionsService(settings)
+    option = service.get_option(option_id)
+    if option is None:
+        raise RuntimeError(f"Unknown premium model option: {option_id}")
+    if not option.enabled:
+        reason = option.disabled_reason or "The provider is not configured on this backend."
+        raise RuntimeError(f"{option.label} is not available: {reason}")
+    return option
+
+
+def _premium_prompt(page_no: int) -> str:
+    return (
+        f"Recreate page {page_no} from the reference image as clean A4 portrait handwriting. "
+        "Keep the same content, order, labels, diagrams, spelling, headings, captions, and page layout."
+    )
+
+
+def _format_metric(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.4f}"

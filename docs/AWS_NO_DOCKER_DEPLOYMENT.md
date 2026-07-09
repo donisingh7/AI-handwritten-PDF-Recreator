@@ -111,6 +111,7 @@ SIGNED_URL_EXPIRY_SECONDS=900
 OPENAI_API_KEY=
 OPENAI_COST_MODE=fast
 OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_MINI_IMAGE_MODEL=
 OPENAI_IMAGE_SIZE=1024x1536
 OPENAI_IMAGE_QUALITY=high
 OPENAI_IMAGE_FORMAT=png
@@ -138,6 +139,23 @@ CHEAP_MODE_RENDER_DPI=150
 CHEAP_MODE_CLEANUP_MAX_WIDTH=1654
 CHEAP_MODE_CLEANUP_MAX_HEIGHT=2339
 CHEAP_MODE_ENABLE_ADVANCED_CLEANUP=true
+CHEAP_CLEANUP_PRESET=strong_print
+CHEAP_BACKGROUND_STRENGTH=0.85
+CHEAP_CONTRAST_STRENGTH=1.25
+CHEAP_DESPECKLE_STRENGTH=medium
+CHEAP_REMOVE_LIGHT_LINES=true
+CHEAP_INK_DARKEN=true
+
+REPLICATE_API_TOKEN=
+REPLICATE_QWEN_IMAGE_EDIT_MODEL=qwen/qwen-image-edit
+FAL_API_KEY=
+FAL_KEY=
+FAL_FLUX_KONTEXT_MODEL=fal-ai/flux-pro/kontext
+HF_TOKEN=
+HF_QWEN_IMAGE_EDIT_MODEL=Qwen/Qwen-Image-Edit
+NVIDIA_API_KEY=
+NVIDIA_BASE_URL=
+NVIDIA_IMAGE_MODEL=
 ```
 
 Protect the env file:
@@ -147,7 +165,7 @@ sudo chown root:root /etc/handpdf.env
 sudo chmod 600 /etc/handpdf.env
 ```
 
-Cheap Mode does not require `OPENAI_API_KEY`. Premium Mode requires `OPENAI_API_KEY`.
+Cheap Mode does not require `OPENAI_API_KEY` or any other AI provider token. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; optional provider tokens only enable experimental selector options.
 
 ## 7. Install systemd Services
 
@@ -305,6 +323,7 @@ For Cheap Mode logs, expect:
 
 ```text
 Cheap mode: OpenCV/Pillow cleanup only. OpenAI skipped.
+cleanup preset=strong_print
 Cheap mode processing page X/Y
 Cleaned temp files for page X
 ```
