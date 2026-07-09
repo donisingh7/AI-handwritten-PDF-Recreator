@@ -202,15 +202,18 @@ def process_job(job_id: str) -> None:
         logger.info("job %s: completed in %.1fs", job.id, time.monotonic() - job_started_at)
     except Exception as exc:
         logger.exception("job %s: failed", job_id)
-        job = _load_job(db, job_id)
-        if job is not None:
-            job.status = JobStatus.FAILED
-            job.error = str(exc)
-            _touch_job(job)
-            db.add(job)
-            db.commit()
+        db.rollback()
+        with SessionLocal() as failure_db:
+            job = _load_job(failure_db, job_id)
+            if job is not None:
+                job.status = JobStatus.FAILED
+                job.error = str(exc)
+                _touch_job(job)
+                failure_db.add(job)
+                failure_db.commit()
             try:
-                _upload_manifest(db, job.id, S3Service(settings))
+                if job is not None:
+                    _upload_manifest(failure_db, job.id, S3Service(settings))
             except Exception:
                 pass
         raise
@@ -228,7 +231,6 @@ def _set_job_status(db: Session, job: Job, status: str) -> None:
     _touch_job(job)
     db.add(job)
     db.commit()
-    db.refresh(job)
 
 
 def _touch_job(job: Job) -> None:
@@ -253,8 +255,6 @@ def _ensure_page_records(db: Session, job: Job, page_count: int) -> list[JobPage
         db.add(page)
         records.append(page)
     db.commit()
-    for page in records:
-        db.refresh(page)
     return records
 
 
@@ -269,7 +269,6 @@ def _mark_page_rendered(db: Session, job: Job, page_no: int, source_key: str) ->
     db.add(page)
     _touch_job(job)
     db.commit()
-    db.refresh(page)
     return page
 
 

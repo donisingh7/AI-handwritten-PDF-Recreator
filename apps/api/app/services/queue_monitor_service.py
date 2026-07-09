@@ -32,11 +32,6 @@ class QueueMonitorService:
             redis_conn = Redis.from_url(self.settings.redis_url)
             queue = Queue(self.settings.rq_queue_name, connection=redis_conn)
 
-            # RQ moves jobs abandoned by dead/restarted workers from Started to
-            # Failed during cleanup. Running this on status polling prevents the
-            # frontend from showing a stale in-progress state forever.
-            StartedJobRegistry(queue.name, connection=redis_conn).cleanup()
-
             failed_job = self._find_matching_job(redis_conn, FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids(), job.id)
             failed_attempts = self._count_matching_jobs(
                 redis_conn,
@@ -60,7 +55,7 @@ class QueueMonitorService:
             if active_job is not None:
                 return False
 
-            if job.status in ACTIVE_JOB_STATUSES:
+            if job.status in ACTIVE_JOB_STATUSES and self._job_is_stale(job):
                 if self._auto_requeue(db, queue, job, failed_attempts):
                     return True
                 self._mark_failed(
@@ -129,6 +124,14 @@ class QueueMonitorService:
             tail = rq_job.exc_info.strip().splitlines()[-1]
             reason = f"{reason} RQ: {tail[:220]}"
         return reason
+
+    def _job_is_stale(self, job: Job) -> bool:
+        if job.updated_at is None:
+            return False
+        updated_at = job.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - updated_at).total_seconds() > self.settings.job_stale_seconds
 
     def _mark_failed(self, db: Session, job: Job, reason: str) -> None:
         job.status = JobStatus.FAILED
