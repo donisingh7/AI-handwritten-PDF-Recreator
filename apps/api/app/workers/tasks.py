@@ -61,18 +61,26 @@ def process_job(job_id: str) -> None:
                 f"Uploaded PDF has {actual_page_count} pages, but job was created for {job.page_count} pages."
             )
 
+        _ensure_page_records(db, job, actual_page_count)
         stage_started_at = time.monotonic()
         logger.info("job %s: rendering %s PDF page(s)", job.id, actual_page_count)
-        source_paths = pdf_service.render_pages_to_png(
+        for page_no, source_path in pdf_service.iter_render_pages_to_png(
             original_pdf_path,
             source_dir,
             dpi=settings.pdf_render_dpi,
             max_pages=settings.max_pdf_pages,
-        )
-        logger.info("job %s: rendered PDF pages in %.1fs", job.id, time.monotonic() - stage_started_at)
-
-        page_records = _create_or_update_page_records(db, job, source_paths, s3)
-        logger.info("job %s: uploaded source page images", job.id)
+        ):
+            source_key = page_png_key(job.id, page_no, "source")
+            s3.upload_file(source_path, source_key, "image/png")
+            _mark_page_rendered(db, job, page_no, source_key)
+            logger.info(
+                "job %s page %s/%s: rendered and uploaded source image",
+                job.id,
+                page_no,
+                actual_page_count,
+            )
+        page_records = _load_page_records(db, job)
+        logger.info("job %s: rendered and uploaded PDF pages in %.1fs", job.id, time.monotonic() - stage_started_at)
 
         _set_job_status(db, job, JobStatus.PROCESSING_PAGES)
         generated_paths: dict[int, Path] = {}
@@ -216,27 +224,45 @@ def _set_job_status(db: Session, job: Job, status: str) -> None:
     db.refresh(job)
 
 
-def _create_or_update_page_records(db: Session, job: Job, source_paths: list[Path], s3: S3Service) -> list[JobPage]:
+def _ensure_page_records(db: Session, job: Job, page_count: int) -> list[JobPage]:
+    existing_pages = {
+        page.page_no: page
+        for page in db.execute(select(JobPage).where(JobPage.job_id == job.id)).scalars().all()
+    }
     records: list[JobPage] = []
-    for source_path in source_paths:
-        page_no = int(source_path.stem.split("_")[1])
-        source_key = page_png_key(job.id, page_no, "source")
-        s3.upload_file(source_path, source_key, "image/png")
-
-        page = db.execute(
-            select(JobPage).where(JobPage.job_id == job.id, JobPage.page_no == page_no)
-        ).scalar_one_or_none()
+    for page_no in range(1, page_count + 1):
+        page = existing_pages.get(page_no)
         if page is None:
             page = JobPage(job_id=job.id, page_no=page_no)
-        page.source_image_key = source_key
-        page.status = PageStatus.RENDERED
+        page.source_image_key = None
+        page.generated_image_key = None
+        page.status = PageStatus.PENDING
         page.error = None
+        page.retry_count = 0
         db.add(page)
         records.append(page)
     db.commit()
     for page in records:
         db.refresh(page)
     return records
+
+
+def _mark_page_rendered(db: Session, job: Job, page_no: int, source_key: str) -> JobPage:
+    page = db.execute(select(JobPage).where(JobPage.job_id == job.id, JobPage.page_no == page_no)).scalar_one_or_none()
+    if page is None:
+        page = JobPage(job_id=job.id, page_no=page_no)
+    page.source_image_key = source_key
+    page.generated_image_key = None
+    page.status = PageStatus.RENDERED
+    page.error = None
+    db.add(page)
+    db.commit()
+    db.refresh(page)
+    return page
+
+
+def _load_page_records(db: Session, job: Job) -> list[JobPage]:
+    return list(db.execute(select(JobPage).where(JobPage.job_id == job.id).order_by(JobPage.page_no)).scalars().all())
 
 
 def _upload_manifest(db: Session, job_id: str, s3: S3Service) -> None:

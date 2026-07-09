@@ -1,4 +1,5 @@
 from pathlib import Path
+from collections.abc import Iterator
 
 import fitz
 
@@ -23,9 +24,25 @@ class PDFService:
         return page_count
 
     def render_pages_to_png(self, pdf_path: Path, output_dir: Path, dpi: int, max_pages: int) -> list[Path]:
+        return [
+            output_path
+            for _, output_path in self.iter_render_pages_to_png(
+                pdf_path,
+                output_dir,
+                dpi=dpi,
+                max_pages=max_pages,
+            )
+        ]
+
+    def iter_render_pages_to_png(
+        self,
+        pdf_path: Path,
+        output_dir: Path,
+        dpi: int,
+        max_pages: int,
+    ) -> Iterator[tuple[int, Path]]:
         output_dir.mkdir(parents=True, exist_ok=True)
         page_count = self.validate_pdf(pdf_path, max_pages)
-        rendered_paths: list[Path] = []
         matrix = fitz.Matrix(dpi / 72, dpi / 72)
         with fitz.open(pdf_path) as doc:
             for index in range(page_count):
@@ -34,5 +51,4 @@ class PDFService:
                 page_no = index + 1
                 output_path = output_dir / f"page_{page_no:03d}.png"
                 pixmap.save(str(output_path))
-                rendered_paths.append(output_path)
-        return rendered_paths
+                yield page_no, output_path

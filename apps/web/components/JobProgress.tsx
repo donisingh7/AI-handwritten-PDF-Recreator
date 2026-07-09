@@ -31,8 +31,13 @@ function stageCopy(status: JobStatus | null, pages: PageStatus[]): { title: stri
       return { title: "Preparing upload", detail: "The original PDF is being prepared for background processing." };
     case "queued":
       return { title: "Waiting for worker", detail: "The job is in queue and will start as soon as the worker picks it up." };
-    case "rendering_pages":
-      return { title: "Rendering PDF pages", detail: "The backend is converting each PDF page into a source image." };
+    case "rendering_pages": {
+      const renderedPages = pages.filter((page) => page.sourceImageKey || page.status === "rendered").length;
+      return {
+        title: renderedPages ? `Rendering PDF pages: ${renderedPages}/${status.pageCount}` : "Rendering PDF pages",
+        detail: "The backend is converting each PDF page into a source image before cleanup starts."
+      };
+    }
     case "processing_pages": {
       const activePage = pages.find((page) => page.status === "processing")?.pageNo;
       const action = mode === "cheap" ? "Cleaning scanned handwriting locally" : "Recreating handwriting with AI";
@@ -61,7 +66,11 @@ function progressPercent(status: JobStatus | null, pages: PageStatus[]): number 
   if (!status?.pageCount) return 0;
   if (terminalStatuses.has(status.status)) return status.status === "completed" ? 100 : Math.max(10, Math.round((status.completedPages / status.pageCount) * 100));
   if (status.status === "queued") return 10;
-  if (status.status === "rendering_pages") return 18;
+  if (status.status === "rendering_pages") {
+    const renderedPages = pages.filter((page) => page.sourceImageKey || page.status === "rendered").length;
+    const renderProgress = renderedPages / status.pageCount;
+    return Math.min(25, Math.max(12, Math.round(12 + renderProgress * 13)));
+  }
   if (status.status === "merging_pdf") return 94;
   if (status.status === "processing_pages") {
     const processingPages = pages.filter((page) => page.status === "processing").length;
@@ -71,10 +80,19 @@ function progressPercent(status: JobStatus | null, pages: PageStatus[]): number 
   return 5;
 }
 
-function estimateCopy(status: JobStatus | null, elapsedSeconds: number): string {
+function estimateCopy(status: JobStatus | null, pages: PageStatus[], elapsedSeconds: number): string {
   if (!status) return "Waiting for status...";
   if (status.status === "completed") return "Finished";
   if (status.status === "failed" || status.status === "partially_failed") return "Stopped";
+  if (status.status === "rendering_pages") {
+    const renderedPages = pages.filter((page) => page.sourceImageKey || page.status === "rendered").length;
+    const remainingPages = Math.max(0, status.pageCount - renderedPages);
+    if (renderedPages > 0 && remainingPages > 0) {
+      const averageSeconds = elapsedSeconds / renderedPages;
+      return `Rendering, about ${formatDuration(Math.ceil(averageSeconds * remainingPages))}`;
+    }
+    return "Preparing first rendered page...";
+  }
   const remainingPages = Math.max(0, status.pageCount - status.completedPages);
   if (status.status === "processing_pages" && status.completedPages > 0 && remainingPages > 0) {
     const averageSeconds = elapsedSeconds / status.completedPages;
@@ -135,7 +153,7 @@ export function JobProgress({ jobId }: { jobId: string }) {
   const elapsedSeconds = Math.floor((now - visibleStartedAt) / 1000);
   const currentStage = stageCopy(status, pages);
   const currentStageIndex = status ? stageOrder.indexOf(status.status) : -1;
-  const estimate = estimateCopy(status, elapsedSeconds);
+  const estimate = estimateCopy(status, pages, elapsedSeconds);
 
   async function handleDownload() {
     if (!status) return;
