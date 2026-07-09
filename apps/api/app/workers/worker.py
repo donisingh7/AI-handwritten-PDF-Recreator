@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from redis import Redis
 from rq import SimpleWorker, Worker
@@ -12,13 +14,45 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+class WorkerHealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"worker ok")
+
+    def do_HEAD(self) -> None:
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
 class WindowsSimpleWorker(SimpleWorker):
     death_penalty_class = TimerDeathPenalty
+
+
+def start_health_server_if_configured() -> None:
+    port_value = os.environ.get("WORKER_HEALTH_PORT") or os.environ.get("PORT")
+    if not port_value:
+        return
+    try:
+        port = int(port_value)
+    except ValueError:
+        logger.warning("worker health server disabled: invalid port %r", port_value)
+        return
+
+    server = ThreadingHTTPServer(("0.0.0.0", port), WorkerHealthHandler)
+    thread = threading.Thread(target=server.serve_forever, name="worker-health-server", daemon=True)
+    thread.start()
+    logger.info("worker health server listening on 0.0.0.0:%s", port)
 
 
 def main() -> None:
     settings = get_settings()
     create_tables()
+    start_health_server_if_configured()
     redis_conn = Redis.from_url(settings.redis_url)
     worker_cls = WindowsSimpleWorker if os.name == "nt" else Worker
     logger.info(
