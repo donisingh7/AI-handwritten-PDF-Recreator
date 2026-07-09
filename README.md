@@ -88,6 +88,18 @@ API:
 - `REPLICATE_PROVIDER_ENABLED`
 - `REPLICATE_API_TOKEN`
 - `REPLICATE_QWEN_IMAGE_EDIT_MODEL`
+- `REPLICATE_MAX_RETRIES`
+- `REPLICATE_RATE_LIMIT_DELAY_SECONDS`
+- `REPLICATE_MIN_SECONDS_BETWEEN_PREDICTIONS`
+- `REPLICATE_PREDICTION_TIMEOUT_SECONDS`
+- `REPLICATE_QUALITY_PRESET`
+- `REPLICATE_SOURCE_MAX_WIDTH`
+- `REPLICATE_SOURCE_MAX_HEIGHT`
+- `REPLICATE_OUTPUT_FORMAT`
+- `REPLICATE_OUTPUT_QUALITY`
+- `REPLICATE_GO_FAST`
+- `REPLICATE_NUM_INFERENCE_STEPS`
+- `REPLICATE_GUIDANCE`
 - `FAL_PROVIDER_ENABLED`
 - `FAL_KEY`
 - `FAL_FLUX_KONTEXT_MODEL`
@@ -104,6 +116,17 @@ Frontend:
 ## Image Generation And Print Pipeline
 
 Premium Mode is the AI image recreation pipeline. The default and fully supported provider is OpenAI GPT Image 2, which gives the highest-quality handwritten recreation and higher cost. The UI can show configured experimental provider/model options such as Qwen Image Edit via Replicate, FLUX Kontext via fal.ai, and Hugging Face Qwen. Experimental providers do not expose secrets to the frontend and should be tested with a 1-page PDF before larger jobs.
+
+Replicate accounts can have low burst/rate limits, especially after newly adding credit. For Replicate Qwen Image Edit, keep `REPLICATE_MIN_SECONDS_BETWEEN_PREDICTIONS=15` and test one page first. The backend retries HTTP 429 responses, respects `retry_after`/`Retry-After`, and fails fast with a clear message for insufficient credit or token/access errors.
+
+Replicate quality presets:
+
+- `fast`: quick testing only, smaller source image and webp output.
+- `balanced`: default recommended production test preset, `1240x1754` source max and PNG output.
+- `high`: better printable quality, slower and potentially more costly.
+- `print`: largest source image preset, use carefully for final testing.
+
+The Replicate provider inspects the selected model input schema and only sends supported optional quality fields. Required `prompt` and `image` are always sent.
 
 Cheap Mode is a memory-optimized OpenCV/Pillow cleanup pipeline. It does not call OpenAI or any other AI provider. It cleans existing handwriting instead of recreating new handwriting. It renders and cleans one page at a time, uses lower-DPI source rendering by default, preserves readable handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
 

@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     replicate_provider_enabled: bool = False
     replicate_api_token: Optional[str] = None
     replicate_qwen_image_edit_model: str = "qwen/qwen-image-edit"
+    replicate_max_retries: int = 8
+    replicate_rate_limit_delay_seconds: float = 15.0
+    replicate_min_seconds_between_predictions: float = 15.0
+    replicate_prediction_timeout_seconds: float = 300.0
+    replicate_quality_preset: str = "balanced"
+    replicate_source_max_width: int = 1240
+    replicate_source_max_height: int = 1754
+    replicate_output_format: str = "png"
+    replicate_output_quality: int = 95
+    replicate_go_fast: bool = False
+    replicate_num_inference_steps: int = 50
+    replicate_guidance: float = 4.0
     fal_provider_enabled: bool = False
     fal_api_key: Optional[str] = None
     fal_key: Optional[str] = None
@@ -163,6 +175,56 @@ class Settings(BaseSettings):
     @property
     def effective_fal_api_key(self) -> Optional[str]:
         return self.fal_key or self.fal_api_key
+
+    @property
+    def replicate_quality_preset_normalized(self) -> str:
+        preset = self.replicate_quality_preset.strip().lower()
+        if preset in {"fast", "balanced", "high", "print"}:
+            return preset
+        return "balanced"
+
+    @property
+    def effective_replicate_quality_config(self) -> dict[str, int | float | str | bool]:
+        preset = self.replicate_quality_preset_normalized
+        presets: dict[str, dict[str, int | float | str | bool]] = {
+            "fast": {
+                "source_max_width": 768,
+                "source_max_height": 1088,
+                "output_format": "webp",
+                "output_quality": 80,
+                "go_fast": True,
+                "num_inference_steps": 25,
+                "guidance": self.replicate_guidance,
+            },
+            "balanced": {
+                "source_max_width": self.replicate_source_max_width,
+                "source_max_height": self.replicate_source_max_height,
+                "output_format": self.replicate_output_format,
+                "output_quality": self.replicate_output_quality,
+                "go_fast": self.replicate_go_fast,
+                "num_inference_steps": 40,
+                "guidance": self.replicate_guidance,
+            },
+            "high": {
+                "source_max_width": 1654,
+                "source_max_height": 2339,
+                "output_format": "png",
+                "output_quality": 100,
+                "go_fast": False,
+                "num_inference_steps": 50,
+                "guidance": self.replicate_guidance,
+            },
+            "print": {
+                "source_max_width": 1860,
+                "source_max_height": 2631,
+                "output_format": "png",
+                "output_quality": 100,
+                "go_fast": False,
+                "num_inference_steps": 60,
+                "guidance": self.replicate_guidance,
+            },
+        }
+        return presets[preset]
 
 
 @lru_cache

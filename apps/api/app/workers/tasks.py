@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Job, JobPage, JobStatus, PageStatus, ProcessingMode
+from app.services.image_recreation_providers import ProviderFatalError, get_image_recreation_provider
 from app.services.merge_service import MergeService
 from app.services.model_options_service import DEFAULT_PREMIUM_MODEL_OPTION_ID, ModelOption, ModelOptionsService
 from app.services.pdf_service import PDFService, PDFValidationError
@@ -49,14 +50,14 @@ def process_job(job_id: str) -> None:
                 premium_model_option.id,
             )
             logger.info(
-                "job %s: OpenAI cost mode=%s size=%s quality=%s format=%s source_max=%sx%s",
+                "job %s: image recreation render config provider=%s preset=%s size=%sx%s format=%s outputQuality=%s",
                 job.id,
-                settings.openai_cost_mode_normalized,
-                settings.effective_openai_image_size,
-                settings.effective_openai_image_quality,
-                settings.effective_openai_image_format,
-                settings.effective_openai_source_max_width_px,
-                settings.effective_openai_source_max_height_px,
+                premium_model_option.provider,
+                _provider_quality_preset(premium_model_option, settings),
+                _provider_source_max_width(premium_model_option, settings),
+                _provider_source_max_height(premium_model_option, settings),
+                _provider_output_format(premium_model_option, settings),
+                _provider_output_quality(premium_model_option, settings),
             )
 
         _set_job_status(db, job, JobStatus.RENDERING_PAGES)
@@ -117,7 +118,8 @@ def process_job(job_id: str) -> None:
 
         for page in sorted(page_records, key=lambda item: item.page_no):
             source_path = source_dir / f"page_{page.page_no:03d}.png"
-            raw_path = raw_dir / f"page_{page.page_no:03d}.{settings.effective_openai_image_format}"
+            raw_format = _provider_output_format(premium_model_option, settings) if premium_model_option else settings.effective_openai_image_format
+            raw_path = raw_dir / f"page_{page.page_no:03d}.{raw_format}"
             cleaned_path = cleaned_dir / f"page_{page.page_no:03d}.png"
             try:
                 page.status = PageStatus.PROCESSING
@@ -126,7 +128,6 @@ def process_job(job_id: str) -> None:
                 db.commit()
 
                 from app.services.image_postprocess_service import ImagePostprocessService
-                from app.services.image_recreation_providers import get_image_recreation_provider
 
                 if image_service is None:
                     if premium_model_option is None:
@@ -188,16 +189,24 @@ def process_job(job_id: str) -> None:
                 db.add(page)
                 _touch_job(job)
                 db.commit()
+                if isinstance(exc, ProviderFatalError):
+                    raise
 
         failed_pages = [page.page_no for page in page_records if page.status == PageStatus.FAILED]
         if failed_pages:
-            job.status = JobStatus.PARTIALLY_FAILED
-            job.error = f"Failed pages: {', '.join(str(page_no) for page_no in failed_pages)}"
+            completed_pages = [page.page_no for page in page_records if page.status == PageStatus.COMPLETED]
+            if completed_pages:
+                job.status = JobStatus.PARTIALLY_FAILED
+                job.error = f"Failed pages: {', '.join(str(page_no) for page_no in failed_pages)}"
+                logger.info("job %s: partially failed after %.1fs", job.id, time.monotonic() - job_started_at)
+            else:
+                job.status = JobStatus.FAILED
+                job.error = f"All pages failed: {', '.join(str(page_no) for page_no in failed_pages)}"
+                logger.info("job %s: failed because all pages failed after %.1fs", job.id, time.monotonic() - job_started_at)
             _touch_job(job)
             db.add(job)
             db.commit()
             _upload_manifest(db, job.id, s3)
-            logger.info("job %s: partially failed after %.1fs", job.id, time.monotonic() - job_started_at)
             return
 
         _set_job_status(db, job, JobStatus.MERGING_PDF)
@@ -451,6 +460,11 @@ def _upload_manifest(db: Session, job_id: str, s3: S3Service) -> None:
         "aiModel": job.ai_model or ("gpt-image-2" if is_premium else None),
         "modelOptionId": job.model_option_id or (DEFAULT_PREMIUM_MODEL_OPTION_ID if is_premium else None),
         "cleanupPreset": job.cleanup_preset or (s3.settings.cheap_cleanup_preset_normalized if processing_mode == ProcessingMode.CHEAP else None),
+        "replicateQualityPreset": s3.settings.replicate_quality_preset_normalized if job.ai_provider == "replicate" else None,
+        "sourceMaxWidth": _replicate_manifest_source_max_width(job, s3.settings),
+        "sourceMaxHeight": _replicate_manifest_source_max_height(job, s3.settings),
+        "outputFormat": _replicate_manifest_output_format(job, s3.settings),
+        "outputQuality": _replicate_manifest_output_quality(job, s3.settings),
         "pageCount": job.page_count,
         "inputPdfKey": job.input_pdf_key,
         "finalPdfKey": job.final_pdf_key,
@@ -493,6 +507,70 @@ def _premium_prompt(page_no: int) -> str:
         f"Recreate page {page_no} from the reference image as clean A4 portrait handwriting. "
         "Keep the same content, order, labels, diagrams, spelling, headings, captions, and page layout."
     )
+
+
+def _provider_quality_preset(model_option: ModelOption, settings) -> str:
+    if model_option.provider == "openai":
+        return settings.openai_cost_mode_normalized
+    if model_option.provider == "replicate":
+        return settings.replicate_quality_preset_normalized
+    return "provider_default"
+
+
+def _provider_source_max_width(model_option: ModelOption, settings) -> int | str:
+    if model_option.provider == "openai":
+        return settings.effective_openai_source_max_width_px
+    if model_option.provider == "replicate":
+        return int(settings.effective_replicate_quality_config["source_max_width"])
+    return "provider_default"
+
+
+def _provider_source_max_height(model_option: ModelOption, settings) -> int | str:
+    if model_option.provider == "openai":
+        return settings.effective_openai_source_max_height_px
+    if model_option.provider == "replicate":
+        return int(settings.effective_replicate_quality_config["source_max_height"])
+    return "provider_default"
+
+
+def _provider_output_format(model_option: ModelOption, settings) -> str:
+    if model_option.provider == "openai":
+        return settings.effective_openai_image_format
+    if model_option.provider == "replicate":
+        return str(settings.effective_replicate_quality_config["output_format"])
+    return "png"
+
+
+def _provider_output_quality(model_option: ModelOption, settings) -> int | str:
+    if model_option.provider == "openai":
+        return settings.effective_openai_image_quality
+    if model_option.provider == "replicate":
+        return int(settings.effective_replicate_quality_config["output_quality"])
+    return "provider_default"
+
+
+def _replicate_manifest_source_max_width(job: Job, settings) -> int | None:
+    if job.ai_provider != "replicate":
+        return None
+    return int(settings.effective_replicate_quality_config["source_max_width"])
+
+
+def _replicate_manifest_source_max_height(job: Job, settings) -> int | None:
+    if job.ai_provider != "replicate":
+        return None
+    return int(settings.effective_replicate_quality_config["source_max_height"])
+
+
+def _replicate_manifest_output_format(job: Job, settings) -> str | None:
+    if job.ai_provider != "replicate":
+        return None
+    return str(settings.effective_replicate_quality_config["output_format"])
+
+
+def _replicate_manifest_output_quality(job: Job, settings) -> int | None:
+    if job.ai_provider != "replicate":
+        return None
+    return int(settings.effective_replicate_quality_config["output_quality"])
 
 
 def _format_metric(value: float | None) -> str:

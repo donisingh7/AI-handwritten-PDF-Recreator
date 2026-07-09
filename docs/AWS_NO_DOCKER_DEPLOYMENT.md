@@ -149,6 +149,18 @@ CHEAP_INK_DARKEN=true
 REPLICATE_PROVIDER_ENABLED=false
 REPLICATE_API_TOKEN=
 REPLICATE_QWEN_IMAGE_EDIT_MODEL=qwen/qwen-image-edit
+REPLICATE_MAX_RETRIES=8
+REPLICATE_RATE_LIMIT_DELAY_SECONDS=15
+REPLICATE_MIN_SECONDS_BETWEEN_PREDICTIONS=15
+REPLICATE_PREDICTION_TIMEOUT_SECONDS=300
+REPLICATE_QUALITY_PRESET=balanced
+REPLICATE_SOURCE_MAX_WIDTH=1240
+REPLICATE_SOURCE_MAX_HEIGHT=1754
+REPLICATE_OUTPUT_FORMAT=png
+REPLICATE_OUTPUT_QUALITY=95
+REPLICATE_GO_FAST=false
+REPLICATE_NUM_INFERENCE_STEPS=50
+REPLICATE_GUIDANCE=4
 FAL_PROVIDER_ENABLED=false
 FAL_KEY=
 FAL_FLUX_KONTEXT_MODEL=fal-ai/flux-pro/kontext
@@ -165,6 +177,8 @@ sudo chmod 600 /etc/handpdf.env
 ```
 
 Cheap Mode does not require `OPENAI_API_KEY` or any other AI provider token. Premium Mode defaults to OpenAI GPT Image 2 and requires `OPENAI_API_KEY`; Replicate, fal.ai, and Hugging Face require their `*_PROVIDER_ENABLED=true` flag plus their token before appearing as enabled selector options.
+
+For Replicate accounts with low burst limits, keep `REPLICATE_MIN_SECONDS_BETWEEN_PREDICTIONS=15`. `REPLICATE_QUALITY_PRESET=balanced` is recommended for production testing; `high` and `print` are slower and may cost more.
 
 ## 7. Install systemd Services
 
