@@ -1,0 +1,16 @@
+[Unit]
+Description=AI Handwritten PDF Recreator RQ Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/AI-handwritten-PDF-Recreator/apps/api
+EnvironmentFile=/etc/handpdf.env
+ExecStart=/home/ubuntu/AI-handwritten-PDF-Recreator/apps/api/.venv/bin/python -m app.workers.worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
