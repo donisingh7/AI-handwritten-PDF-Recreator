@@ -78,14 +78,38 @@ class Settings(BaseSettings):
     replicate_rate_limit_delay_seconds: float = 15.0
     replicate_min_seconds_between_predictions: float = 15.0
     replicate_prediction_timeout_seconds: float = 300.0
-    replicate_quality_preset: str = "balanced"
-    replicate_source_max_width: int = 1240
-    replicate_source_max_height: int = 1754
+    replicate_quality_preset: str = "high"
+    replicate_source_max_width: int = 1654
+    replicate_source_max_height: int = 2339
     replicate_output_format: str = "png"
-    replicate_output_quality: int = 95
+    replicate_output_quality: int = 100
     replicate_go_fast: bool = False
     replicate_num_inference_steps: int = 50
     replicate_guidance: float = 4.0
+
+    premium_source_cleanup_enabled: bool = True
+    premium_remove_source_horizontal_lines: bool = True
+    premium_remove_source_vertical_lines: bool = True
+    premium_remove_source_scan_marks: bool = True
+    premium_source_background_whiten: bool = True
+    premium_source_line_removal_strength: str = "strong"
+    premium_force_plain_a4: bool = True
+    premium_force_pure_white_background: bool = True
+    premium_heading_ink_color: str = "black"
+    premium_body_ink_color: str = "blue"
+    premium_diagram_ink_color: str = "blue_black"
+    premium_style_retry_on_fail: bool = True
+    premium_max_style_retries: int = 1
+    premium_output_cleanup_enabled: bool = True
+    premium_output_force_white_background: bool = True
+    premium_output_remove_residual_lines: bool = True
+    premium_output_despeckle: bool = True
+    premium_output_preserve_blue_black_only: bool = True
+    premium_style_validation_enabled: bool = True
+    premium_background_whiteness_threshold: float = 0.985
+    premium_max_horizontal_line_score: str = "low"
+    premium_max_vertical_line_score: str = "low"
+    premium_max_nonwhite_artefact_ratio: float = 0.02
     fal_provider_enabled: bool = False
     fal_api_key: Optional[str] = None
     fal_key: Optional[str] = None
@@ -225,6 +249,34 @@ class Settings(BaseSettings):
             },
         }
         return presets[preset]
+
+    @property
+    def premium_source_line_removal_strength_normalized(self) -> str:
+        strength = self.premium_source_line_removal_strength.strip().lower()
+        if strength in {"light", "medium", "strong"}:
+            return strength
+        return "strong"
+
+    @property
+    def premium_max_horizontal_line_score_value(self) -> float:
+        return self._line_score_value(self.premium_max_horizontal_line_score)
+
+    @property
+    def premium_max_vertical_line_score_value(self) -> float:
+        return self._line_score_value(self.premium_max_vertical_line_score)
+
+    def _line_score_value(self, label: str) -> float:
+        normalized = label.strip().lower()
+        if normalized == "none":
+            return 0.002
+        if normalized == "low":
+            return 0.008
+        if normalized == "medium":
+            return 0.018
+        try:
+            return max(0.0, float(normalized))
+        except ValueError:
+            return 0.008
 
 
 @lru_cache

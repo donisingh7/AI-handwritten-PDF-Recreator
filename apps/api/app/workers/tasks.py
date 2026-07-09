@@ -26,6 +26,7 @@ def process_job(job_id: str) -> None:
     settings = get_settings()
     work_dir = Path(settings.local_work_dir) / job_id
     source_dir = work_dir / "source"
+    premium_source_dir = work_dir / "premium_source"
     raw_dir = work_dir / "raw_generated"
     cleaned_dir = work_dir / "generated"
     final_dir = work_dir / "final"
@@ -114,12 +115,15 @@ def process_job(job_id: str) -> None:
         _set_job_status(db, job, JobStatus.PROCESSING_PAGES)
         generated_paths: dict[int, Path] = {}
         image_service = None
-        postprocess_service = None
+        prompt_service = None
+        source_cleanup_service = None
+        output_cleanup_service = None
+        validation_service = None
 
         for page in sorted(page_records, key=lambda item: item.page_no):
             source_path = source_dir / f"page_{page.page_no:03d}.png"
             raw_format = _provider_output_format(premium_model_option, settings) if premium_model_option else settings.effective_openai_image_format
-            raw_path = raw_dir / f"page_{page.page_no:03d}.{raw_format}"
+            cleaned_source_path = premium_source_dir / f"page_{page.page_no:03d}.png"
             cleaned_path = cleaned_dir / f"page_{page.page_no:03d}.png"
             try:
                 page.status = PageStatus.PROCESSING
@@ -127,43 +131,108 @@ def process_job(job_id: str) -> None:
                 db.add(page)
                 db.commit()
 
-                from app.services.image_postprocess_service import ImagePostprocessService
+                from app.services.premium_output_cleanup_service import PremiumOutputCleanupService
+                from app.services.premium_prompt_service import PremiumPromptService
+                from app.services.premium_source_cleanup_service import PremiumSourceCleanupService
+                from app.services.premium_style_validation_service import PremiumStyleValidationService
 
                 if image_service is None:
                     if premium_model_option is None:
                         premium_model_option = _premium_model_option(job, settings)
                     image_service = get_image_recreation_provider(premium_model_option, settings)
-                if postprocess_service is None:
-                    postprocess_service = ImagePostprocessService(settings)
-                page_started_at = time.monotonic()
+                if prompt_service is None:
+                    prompt_service = PremiumPromptService(settings)
+                if source_cleanup_service is None:
+                    source_cleanup_service = PremiumSourceCleanupService(settings)
+                if output_cleanup_service is None:
+                    output_cleanup_service = PremiumOutputCleanupService(settings)
+                if validation_service is None:
+                    validation_service = PremiumStyleValidationService(settings)
+
+                source_cleanup_result = source_cleanup_service.clean_source(source_path, cleaned_source_path)
                 logger.info(
-                    "job %s page %s: requesting %s image recreation with %s",
+                    "job %s page %s: source cleanup strategy=%s changed_pixel_ratio=%.4f",
                     job.id,
                     page.page_no,
-                    premium_model_option.provider if premium_model_option else "unknown",
-                    premium_model_option.model if premium_model_option else "unknown",
+                    source_cleanup_result.strategy,
+                    source_cleanup_result.changed_pixel_ratio,
                 )
-                image_service.recreate_page(
-                    source_path,
-                    _premium_prompt(page.page_no),
-                    raw_path,
-                    page.page_no,
-                    premium_model_option,
+                max_attempts = 1 + (
+                    max(0, settings.premium_max_style_retries)
+                    if settings.premium_style_retry_on_fail and settings.premium_style_validation_enabled
+                    else 0
                 )
-                logger.info(
-                    "job %s page %s: premium image recreation finished in %.1fs",
-                    job.id,
-                    page.page_no,
-                    time.monotonic() - page_started_at,
-                )
-                postprocess_started_at = time.monotonic()
-                postprocess_service.clean_and_fit_to_a4(raw_path, cleaned_path)
-                logger.info(
-                    "job %s page %s: image post-processing finished in %.1fs",
-                    job.id,
-                    page.page_no,
-                    time.monotonic() - postprocess_started_at,
-                )
+                best_validation = None
+                best_cleaned_path = cleaned_path
+                style_warning = None
+                for attempt_index in range(max_attempts):
+                    attempt_no = attempt_index + 1
+                    attempt_raw_path = raw_dir / f"page_{page.page_no:03d}_attempt_{attempt_no}.{raw_format}"
+                    attempt_cleaned_path = cleaned_dir / f"page_{page.page_no:03d}_attempt_{attempt_no}.png"
+                    prompt = prompt_service.build_prompt(page.page_no, retry_attempt=attempt_index)
+                    logger.info(
+                        "job %s page %s: premium style prompt mode=%s",
+                        job.id,
+                        page.page_no,
+                        "retry_strict" if attempt_index else "standard_clean_a4",
+                    )
+                    page_started_at = time.monotonic()
+                    logger.info(
+                        "job %s page %s: requesting %s image recreation with %s attempt=%s/%s",
+                        job.id,
+                        page.page_no,
+                        premium_model_option.provider if premium_model_option else "unknown",
+                        premium_model_option.model if premium_model_option else "unknown",
+                        attempt_no,
+                        max_attempts,
+                    )
+                    image_service.recreate_page(
+                        cleaned_source_path,
+                        prompt,
+                        attempt_raw_path,
+                        page.page_no,
+                        premium_model_option,
+                    )
+                    logger.info(
+                        "job %s page %s: premium image recreation finished in %.1fs attempt=%s/%s",
+                        job.id,
+                        page.page_no,
+                        time.monotonic() - page_started_at,
+                        attempt_no,
+                        max_attempts,
+                    )
+                    postprocess_started_at = time.monotonic()
+                    cleanup_result = output_cleanup_service.clean_and_fit_to_a4(attempt_raw_path, attempt_cleaned_path)
+                    logger.info(
+                        "job %s page %s: output cleanup strategy=%s finished in %.1fs",
+                        job.id,
+                        page.page_no,
+                        cleanup_result.strategy,
+                        time.monotonic() - postprocess_started_at,
+                    )
+                    validation_result = validation_service.validate(attempt_cleaned_path)
+                    best_validation = validation_result
+                    best_cleaned_path = attempt_cleaned_path
+                    if validation_result.passed:
+                        style_warning = None
+                        logger.info("job %s page %s: style validation passed attempt=%s", job.id, page.page_no, attempt_no)
+                        break
+                    style_warning = ",".join(validation_result.warnings)
+                    logger.warning(
+                        "job %s page %s: style validation failed attempt=%s/%s warnings=%s",
+                        job.id,
+                        page.page_no,
+                        attempt_no,
+                        max_attempts,
+                        style_warning,
+                    )
+                    if attempt_no < max_attempts:
+                        logger.info("job %s page %s: retrying premium generation for style cleanup", job.id, page.page_no)
+
+                if best_cleaned_path != cleaned_path:
+                    shutil.copyfile(best_cleaned_path, cleaned_path)
+                if best_validation is not None and not best_validation.passed:
+                    logger.warning("job %s page %s: keeping best attempt with style_warning=%s", job.id, page.page_no, style_warning)
 
                 generated_key = page_png_key(job.id, page.page_no, "generated")
                 upload_started_at = time.monotonic()
@@ -176,7 +245,7 @@ def process_job(job_id: str) -> None:
                 )
                 page.generated_image_key = generated_key
                 page.status = PageStatus.COMPLETED
-                page.error = None
+                page.error = f"style_warning:{style_warning}" if style_warning else None
                 db.add(page)
                 _touch_job(job)
                 db.commit()
@@ -500,13 +569,6 @@ def _premium_model_option(job: Job, settings) -> ModelOption:
         reason = option.disabled_reason or "The provider is not configured on this backend."
         raise RuntimeError(f"{option.label} is not available: {reason}")
     return option
-
-
-def _premium_prompt(page_no: int) -> str:
-    return (
-        f"Recreate page {page_no} from the reference image as clean A4 portrait handwriting. "
-        "Keep the same content, order, labels, diagrams, spelling, headings, captions, and page layout."
-    )
 
 
 def _provider_quality_preset(model_option: ModelOption, settings) -> str:

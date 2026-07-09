@@ -106,6 +106,29 @@ API:
 - `HF_PROVIDER_ENABLED`
 - `HF_TOKEN`
 - `HF_QWEN_IMAGE_EDIT_MODEL`
+- `PREMIUM_SOURCE_CLEANUP_ENABLED`
+- `PREMIUM_REMOVE_SOURCE_HORIZONTAL_LINES`
+- `PREMIUM_REMOVE_SOURCE_VERTICAL_LINES`
+- `PREMIUM_REMOVE_SOURCE_SCAN_MARKS`
+- `PREMIUM_SOURCE_BACKGROUND_WHITEN`
+- `PREMIUM_SOURCE_LINE_REMOVAL_STRENGTH`
+- `PREMIUM_FORCE_PLAIN_A4`
+- `PREMIUM_FORCE_PURE_WHITE_BACKGROUND`
+- `PREMIUM_HEADING_INK_COLOR`
+- `PREMIUM_BODY_INK_COLOR`
+- `PREMIUM_DIAGRAM_INK_COLOR`
+- `PREMIUM_STYLE_RETRY_ON_FAIL`
+- `PREMIUM_MAX_STYLE_RETRIES`
+- `PREMIUM_OUTPUT_CLEANUP_ENABLED`
+- `PREMIUM_OUTPUT_FORCE_WHITE_BACKGROUND`
+- `PREMIUM_OUTPUT_REMOVE_RESIDUAL_LINES`
+- `PREMIUM_OUTPUT_DESPECKLE`
+- `PREMIUM_OUTPUT_PRESERVE_BLUE_BLACK_ONLY`
+- `PREMIUM_STYLE_VALIDATION_ENABLED`
+- `PREMIUM_BACKGROUND_WHITENESS_THRESHOLD`
+- `PREMIUM_MAX_HORIZONTAL_LINE_SCORE`
+- `PREMIUM_MAX_VERTICAL_LINE_SCORE`
+- `PREMIUM_MAX_NONWHITE_ARTEFACT_RATIO`
 
 Frontend:
 
@@ -122,11 +145,18 @@ Replicate accounts can have low burst/rate limits, especially after newly adding
 Replicate quality presets:
 
 - `fast`: quick testing only, smaller source image and webp output.
-- `balanced`: default recommended production test preset, `1240x1754` source max and PNG output.
-- `high`: better printable quality, slower and potentially more costly.
+- `balanced`: faster/cheaper testing preset, `1240x1754` source max and PNG output.
+- `high`: default cleaner printable preset, `1654x2339` source max and PNG output.
 - `print`: largest source image preset, use carefully for final testing.
 
 The Replicate provider inspects the selected model input schema and only sends supported optional quality fields. Required `prompt` and `image` are always sent.
+
+Premium Mode also runs a clean-A4 style pipeline around the image provider:
+
+- source cleanup removes faint notebook ruling, vertical margin lines, scan marks, stains, shadows, and grey paper texture before AI generation
+- a strict style prompt asks for plain unruled A4, pure white background, black headings, blue body text, and clean hand-drawn diagrams
+- output cleanup forces near-white background to pure white, removes faint residual lines/noise, preserves blue/black ink, and normalizes to final printable A4 PNG
+- style validation scores background whiteness, residual line artefacts, non-white artefact ratio, and blue/black ink presence; failed pages retry once with stricter prompt wording when enabled
 
 Cheap Mode is a memory-optimized OpenCV/Pillow cleanup pipeline. It does not call OpenAI or any other AI provider. It cleans existing handwriting instead of recreating new handwriting. It renders and cleans one page at a time, uses lower-DPI source rendering by default, preserves readable handwriting and diagrams, normalizes the page to printable A4, and merges the cleaned pages into the final PDF.
 

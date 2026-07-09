@@ -243,6 +243,7 @@ export function UploadPanel() {
                 : "Loading available premium models..."}
           </p>
           {selectedModelOption?.disabledReason ? <p className="option-warning">{selectedModelOption.disabledReason}</p> : null}
+          <p className="option-copy">Premium output is generated on plain white A4 with black headings and blue body text.</p>
           <p className="option-warning">Different models may change text accuracy and output style. Test 1 page first.</p>
         </div>
       )}

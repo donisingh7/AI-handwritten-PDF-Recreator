@@ -51,7 +51,6 @@ class OpenAIProvider(ImageRecreationProvider):
         page_no: int,
         model_config: ModelOption,
     ) -> Path:
-        del prompt
         if not self.settings.openai_api_key:
             raise ProviderConfigurationError("OPENAI_API_KEY is not configured.")
 
@@ -62,6 +61,7 @@ class OpenAIProvider(ImageRecreationProvider):
             output_image_path,
             page_no,
             model_override=model_config.model,
+            prompt_override=prompt,
         )
 
 
