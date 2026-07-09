@@ -32,19 +32,6 @@ class QueueMonitorService:
             redis_conn = Redis.from_url(self.settings.redis_url)
             queue = Queue(self.settings.rq_queue_name, connection=redis_conn)
 
-            failed_job = self._find_matching_job(redis_conn, FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids(), job.id)
-            failed_attempts = self._count_matching_jobs(
-                redis_conn,
-                FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids(),
-                job.id,
-            )
-            if failed_job is not None:
-                if self._auto_requeue(db, queue, job, failed_attempts):
-                    return True
-                self._mark_failed(db, job, self._failure_reason(failed_job))
-                logger.warning("job %s: synced failed RQ job %s to database", job.id, failed_job.id)
-                return True
-
             active_ids = [
                 *queue.job_ids,
                 *StartedJobRegistry(queue.name, connection=redis_conn).get_job_ids(),
@@ -54,6 +41,16 @@ class QueueMonitorService:
             active_job = self._find_matching_job(redis_conn, active_ids, job.id)
             if active_job is not None:
                 return False
+
+            failed_ids = FailedJobRegistry(queue.name, connection=redis_conn).get_job_ids()
+            failed_job = self._find_matching_job(redis_conn, failed_ids, job.id)
+            failed_attempts = self._count_matching_jobs(redis_conn, failed_ids, job.id)
+            if failed_job is not None:
+                if self._auto_requeue(db, queue, job, failed_attempts):
+                    return True
+                self._mark_failed(db, job, self._failure_reason(failed_job))
+                logger.warning("job %s: synced failed RQ job %s to database", job.id, failed_job.id)
+                return True
 
             if job.status in ACTIVE_JOB_STATUSES and self._job_is_stale(job):
                 if self._auto_requeue(db, queue, job, failed_attempts):
