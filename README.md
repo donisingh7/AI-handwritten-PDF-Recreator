@@ -4,6 +4,64 @@ Full-stack MVP for converting a scanned practical/notebook PDF into a clean, pri
 
 The system accepts exactly one PDF per job, uploads it directly to private S3 through a presigned URL, renders every page, processes each page in either Premium Mode or Cheap Mode, normalizes each page onto a 300-DPI A4 canvas, and merges the cleaned pages into the final printable PDF.
 
+## Portfolio Highlights
+
+This project demonstrates production-oriented **Applied AI + backend/platform engineering**, not just a model call:
+
+- Next.js frontend with client-side PDF validation
+- FastAPI job API and typed configuration
+- direct-to-S3 presigned uploads to avoid proxying large PDFs through the API
+- PostgreSQL-backed job/page state
+- Redis + RQ asynchronous processing
+- provider abstraction for AI image recreation
+- deterministic non-AI fallback/cheap mode using OpenCV/Pillow
+- page-level retry, cleanup, style validation, and final PDF assembly
+- Docker-based local stack and documented cloud deployment paths
+- API and worker health checks plus a production test checklist
+
+## End-to-End System Flow
+
+```text
+Browser / Next.js
+      │
+      ├── validate PDF
+      │
+      ▼
+FastAPI job API
+      │
+      ├── create job + page records ──────► PostgreSQL
+      │
+      ├── presigned upload URL ───────────► Private S3
+      │
+      └── enqueue processing ─────────────► Redis / RQ
+                                               │
+                                               ▼
+                                         Worker pipeline
+                                               │
+                         ┌─────────────────────┴─────────────────────┐
+                         ▼                                           ▼
+                    Premium mode                                 Cheap mode
+              AI image recreation                         OpenCV/Pillow cleanup
+                         │                                           │
+                         └─────────────────────┬─────────────────────┘
+                                               ▼
+                                 A4 normalization + validation
+                                               │
+                                               ▼
+                                      final PDF merge
+                                               │
+                                               ▼
+                                   private S3 download URL
+```
+
+## Verification / Operations
+
+- API health endpoint: `GET /health`
+- Redis/PostgreSQL Docker health checks are defined in `docker-compose.yml`.
+- Worker health-server support is implemented for hosted worker deployments.
+- Manual production validation steps are documented in `docs/PRODUCTION_TEST_CHECKLIST.md`.
+- AWS non-Docker deployment instructions are documented in `docs/AWS_NO_DOCKER_DEPLOYMENT.md`.
+
 ## Architecture
 
 - `apps/web`: Next.js, TypeScript, Tailwind CSS, `pdf-lib` client-side validation.
